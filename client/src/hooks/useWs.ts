@@ -11,7 +11,7 @@ export const useWs = (onMessage: (message: any) => void) => {
         const wsHost = import.meta.env.VITE_WS_HOST || 'localhost'
         const wsPort = import.meta.env.VITE_WS_PORT || 5174
 
-        const socket = new WebSocket(`ws://${wsHost}:${wsPort}`)
+        const socket = new WebSocket(`ws://${wsHost}:${wsPort}/ws`)
         
         socket.onopen = () => {
             console.log('Connected to WebSocket')

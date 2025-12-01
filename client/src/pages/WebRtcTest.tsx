@@ -25,30 +25,39 @@ const WebRtcTest = () => {
         })
     }, [])
 
+
     useEffectAsync(async () => {
-        if (ws && mediaStream) {
-
-            mediaStream.getTracks().forEach(track => pc.addTrack(track, mediaStream))
-            const offer = await pc.createOffer({
-                offerToReceiveAudio: true,
-                offerToReceiveVideo: true,
-            })
-            await pc.setLocalDescription(offer)
-
+        if (ws) {
             ws.send(JSON.stringify({
-                type: 'offer',
-                sdp: offer.sdp,
-                timestamp: new Date().toISOString()
+                type: 'hello',
+                message: "Je m'appelle Pierre"
             }))
-
-            ws.onmessage = (event) => {
-                const message = JSON.parse(event.data)
-                if (message.type === 'answer') {
-                    pc.setRemoteDescription(message.answer)
-                }
-            }
         }
-    }, [ws, mediaStream])
+    }, [ws])
+    // useEffectAsync(async () => {
+    //     if (ws && mediaStream) {
+
+    //         mediaStream.getTracks().forEach(track => pc.addTrack(track, mediaStream))
+    //         const offer = await pc.createOffer({
+    //             offerToReceiveAudio: true,
+    //             offerToReceiveVideo: true,
+    //         })
+    //         await pc.setLocalDescription(offer)
+
+    //         ws.send(JSON.stringify({
+    //             type: 'offer',
+    //             sdp: offer.sdp,
+    //             timestamp: new Date().toISOString()
+    //         }))
+
+    //         ws.onmessage = (event) => {
+    //             const message = JSON.parse(event.data)
+    //             if (message.type === 'answer') {
+    //                 pc.setRemoteDescription(message.answer)
+    //             }
+    //         }
+    //     }
+    // }, [ws, mediaStream])
 
 
     useEffect(() => {
@@ -58,7 +67,7 @@ const WebRtcTest = () => {
     }, []);
 	return <div>
         <div>WebRtcTest</div>
-        <video ref={videoRef} autoPlay playsInline />
+        <video ref={videoRef} autoPlay playsInline muted />
     </div>
 }
 
