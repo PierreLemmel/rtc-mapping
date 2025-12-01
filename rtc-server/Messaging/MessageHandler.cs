@@ -9,29 +9,35 @@ public class MessageHandler : IMessageHandler
         this.logger = logger;
     }
 
-    public void HandleMessage(Message message)
+    public async Task HandleMessage(IncomingMessage message, OutgoingMessageSender sendMessage)
     {
-        switch (message)
+        string type = message.type;
+        string data = message.data;
+        string clientId = message.clientId;
+        
+        switch (type)
         {
-            case Message("log", LogMessageData logMessageData):
-                HandleLogMessage(logMessageData);
+            case "log":
+                HandleLogMessage(data, clientId);
                 break;
-            case Message("offer", OfferMessageData offerMessageData):
-                HandleOfferMessage(offerMessageData);
+            case "offer":
+                HandleOfferMessage(data, clientId);
                 break;
             default:
-                throw new InvalidOperationException($"Unknown message type: {message.type}");
+                logger.Error($"Unknown message type: {type} from client {clientId}");
+                break;
         }
     }
 
-    private void HandleLogMessage(LogMessageData logMessageData)
+    private void HandleLogMessage(string message, string clientId)
     {
-        logger.Log($"Received log message:");
-        logger.Log(logMessageData.message);
+        logger.Log($"Log from '{clientId}':");
+        logger.Log(message);
     }
 
-    private void HandleOfferMessage(OfferMessageData offerMessageData)
+    private void HandleOfferMessage(string offer, string clientId)
     {
-        logger.Log(offerMessageData.sdp);
+        logger.Log($"Received offer from client {clientId}:");
+        logger.Log(offer);
     }
 }

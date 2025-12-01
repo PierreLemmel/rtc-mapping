@@ -5,13 +5,13 @@ import WebRtcTest from './pages/WebRtcTest'
 const App = () => {
 
 
-	
-	return <BrowserRouter>
-		<Routes>
-			<Route path="/" element={<Home />} />
-			<Route path="/rtc" element={<WebRtcTest />} />
-		</Routes>
-	</BrowserRouter>
+	return <WebRtcTest />
+	// return <BrowserRouter>
+	// 	<Routes>
+	// 		<Route path="/" element={<Home />} />
+	// 		<Route path="/rtc" element={<WebRtcTest />} />
+	// 	</Routes>
+	// </BrowserRouter>
 }
 
 export default App
