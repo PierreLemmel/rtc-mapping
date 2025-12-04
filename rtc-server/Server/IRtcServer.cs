@@ -1,6 +1,6 @@
 namespace Plml.RtcServer;
 
-public interface IWebSocketServer
+public interface IRtcServer
 {
     Task Start();
 }

@@ -1,7 +1,6 @@
 {
-  "port": 5174,
   "iceServers": [
     "stun:stun.l.google.com:19302"
   ],
-  "dataChannelLabel": "RTC Server - Feed"
+  "iceCandidatePoolSize": 10
 }

@@ -1,7 +1,4 @@
-﻿using System.Net;
-using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
+﻿using System.Text.Json;
 using Plml.RtcServer;
 
 var settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
@@ -18,16 +15,14 @@ var options = new JsonSerializerOptions
 };
 Settings settings = JsonSerializer.Deserialize<Settings>(jsonContent, options) ?? throw new JsonException("Failed to deserialize settings");
 
-var port = settings.port;
-
 ILogger logger = new Logger();
-IMessageHandler msgHandler = new MessageHandler(logger);
 
-IWebSocketServer webSocketServer = new WebSocketServer(logger, msgHandler, port);
+
+IRtcServer rtcServer = new RtcServer(settings, logger);
 
 try
 {
-    await webSocketServer.Start();
+    await rtcServer.Start();
 }
 catch (Exception ex)
 {

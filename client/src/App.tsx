@@ -1,17 +1,16 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Home from './pages/Home'
-import WebRtcTest from './pages/WebRtcTest'
+import RtcPage from './pages/RtcPage'
 
 const App = () => {
 
 
-	return <WebRtcTest />
-	// return <BrowserRouter>
-	// 	<Routes>
-	// 		<Route path="/" element={<Home />} />
-	// 		<Route path="/rtc" element={<WebRtcTest />} />
-	// 	</Routes>
-	// </BrowserRouter>
+	return <BrowserRouter>
+		<Routes>
+			<Route path="/" element={<Home />} />
+			<Route path="/rtc" element={<RtcPage />} />
+		</Routes>
+	</BrowserRouter>
 }
 
 export default App
