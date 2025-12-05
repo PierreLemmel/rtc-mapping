@@ -1,4 +1,4 @@
-app = "rtc-signaling"
+app = "plml-signaling"
 primary_region = "fra"
 
 [build]
