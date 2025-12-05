@@ -1,5 +1,5 @@
 ﻿using System.Text.Json;
-using Plml.RtcServer;
+using Plml.RtcAdapter;
 
 var settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 

@@ -6,9 +6,9 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/rtc-server/bin/Debug/net9.0/rtc-server.dll",
+      "program": "${workspaceFolder}/rtc-adapter/bin/Debug/net9.0/rtc-adapter.dll",
       "args": [],
-      "cwd": "${workspaceFolder}/rtc-server",
+      "cwd": "${workspaceFolder}/rtc-adapter",
       "stopAtEntry": false,
       "serverReadyAction": {
         "action": "openExternally",
@@ -23,4 +23,3 @@
     }
   ]
 }
-

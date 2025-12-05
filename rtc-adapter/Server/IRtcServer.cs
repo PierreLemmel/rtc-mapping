@@ -1,4 +1,4 @@
-namespace Plml.RtcServer;
+namespace Plml.RtcAdapter;
 
 public interface IRtcServer
 {

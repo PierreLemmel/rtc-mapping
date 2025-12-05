@@ -10,7 +10,7 @@ public class SignalingServer : ISignalingServer
 {
     private readonly int _port;
     private readonly HttpListener _listener;
-    private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
+    private readonly ConcurrentDictionary<string, WebSocket> clients = new();
 
     private string? sdpOffer;
     private readonly ILogger logger;
@@ -68,7 +68,7 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
-        if (!_clients.TryAdd(clientId, ws))
+        if (!clients.TryAdd(clientId, ws))
         {
             logger.Error($"[WS] Client ID {clientId} already exists");
             await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Client ID already exists", CancellationToken.None);
@@ -77,7 +77,8 @@ public class SignalingServer : ISignalingServer
 
         logger.Log($"[WS] Client {clientId} connected");
 
-        await DispatchMessageAsync("ClientAdded", new ClientAddedMessage(clientId, _clients.Count));
+        await Task.Delay(100);
+        await OnClientAddedAsync(clientId);
 
         var buffer = new byte[16384];
         while (ws.State == WebSocketState.Open)
@@ -113,7 +114,7 @@ public class SignalingServer : ISignalingServer
             }
         }
 
-        _clients.TryRemove(clientId, out _);
+        clients.TryRemove(clientId, out _);
         logger.Log($"[WS] Client {clientId} disconnected");
         ws.Dispose();
     }
@@ -161,29 +162,71 @@ public class SignalingServer : ISignalingServer
         await BroadcastMessageAsync(type, payload);
     }
     
+    private async Task SendMessageAsync(string clientId, string type, string data)
+    {
+        if (!clients.TryGetValue(clientId, out var ws))
+        {
+            logger.Error($"[WS] Client {clientId} not found");
+            return;
+        }
+
+        if (ws.State != WebSocketState.Open)
+        {
+            logger.Error($"[WS] Client {clientId} is not open");
+            return;
+        }
+
+        var msg = new OutgoingMessage(type, data, DateTime.UtcNow);
+        string json = JsonSerializer.Serialize(msg);
+        byte[] bytes = Encoding.UTF8.GetBytes(json);
+
+        try
+        {
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.Error($"[WS] Failed to send message to client {clientId}: {ex.Message}");
+        }
+    }
+
     private async Task BroadcastMessageAsync(string type, string data)
     {
         var msg = new OutgoingMessage(type, data, DateTime.UtcNow);
         string json = JsonSerializer.Serialize(msg);
         byte[] bytes = Encoding.UTF8.GetBytes(json);
 
-        var tasks = _clients.Select(async c => 
+        var tasks = clients.Select(async c => 
         {
-            if (c.Value.State == WebSocketState.Open)
+            var ws = c.Value;
+            if (ws.State != WebSocketState.Open)
             {
-                try
-                {
-                    await c.Value.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    logger.Error($"[WS] Failed to send message to client {c.Key}: {ex.Message}");
-                }
+                logger.Error($"[WS] Client {c.Key} is not open");
+                return;
+            }
+
+            try
+            {
+                await c.Value.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"[WS] Failed to send message to client {c.Key}: {ex.Message}");
             }
         });
         
         await Task.WhenAll(tasks);
     }
 
-
+    private async Task OnClientAddedAsync(string clientId)
+    {
+        await DispatchMessageAsync("ClientAdded", new ClientAddedMessage(clientId, clients.Count));
+        if (sdpOffer is not null)
+        {
+            if (clientId != "rtc-adapter")
+            {
+                await SendMessageAsync(clientId, "SdpOffer", sdpOffer);
+            }
+        }
+    }
 }
