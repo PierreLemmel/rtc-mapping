@@ -23,17 +23,13 @@ public class RtcServer: IRtcServer
     {
         pc?.Dispose();
         pc = CreateNewRtcPeerConnection();
+        InitializePeerConnection();
 
         SendSdpOffer();
     }
 
-    private IRtcPeerConnection CreateNewRtcPeerConnection()
+    private void InitializePeerConnection()
     {
-        IRtcPeerConnection pc = new RtcPeerConnection(new RtcPeerConfiguration()
-        {
-            IceServers = settings.iceServers
-        });
-
         pc.OnConnectionStateChange += OnConnectionStateChange;
         pc.OnDataChannel += OnDataChannel;
         pc.OnTrack += OnTrack;
@@ -45,6 +41,14 @@ public class RtcServer: IRtcServer
             Protocol = RtcDataChannelProtocol.Binary
         });
 
+    }
+    private IRtcPeerConnection CreateNewRtcPeerConnection()
+    {
+        IRtcPeerConnection pc = new RtcPeerConnection(new RtcPeerConfiguration()
+        {
+            IceServers = settings.iceServers
+        });
+
         return pc;
     }
 
@@ -54,8 +58,8 @@ public class RtcServer: IRtcServer
         this.logger = logger;
         this.settings = settings;
 
-        pc = CreateNewRtcPeerConnection();
         ws = new ClientWebSocket();
+        pc = CreateNewRtcPeerConnection();
     }
 
     public async Task Start()
@@ -66,6 +70,8 @@ public class RtcServer: IRtcServer
         await ws.ConnectAsync(uri, CancellationToken.None);
         
         logger.Log("[WS] Connected to signaling server.");
+
+        InitializePeerConnection();
 
         await ReceiveLoop();
     }
@@ -108,12 +114,12 @@ public class RtcServer: IRtcServer
 
             if (msg != null)
             {
-                await HandleMessageAsync(msg);
+                HandleMessage(msg);
             }
         }
     }
 
-    private async Task HandleMessageAsync(IncomingMessage message)
+    private void HandleMessage(IncomingMessage message)
     {
         string type = message.type;
         string data = message.data;
@@ -173,6 +179,7 @@ public class RtcServer: IRtcServer
 
     private void OnSignalingStateChange(IRtcPeerConnection sender, rtcSignalingState state)
     {
+        logger.Log($"[RTC] Signaling state changed: {state}");
         switch (state)
         {
             case rtcSignalingState.RTC_SIGNALING_HAVE_LOCAL_OFFER:
@@ -192,7 +199,6 @@ public class RtcServer: IRtcServer
                 logger.Log($"[RTC] Unexpected Signaling state changed: {state}");
                 break;
         }
-        logger.Log($"[RTC] Signaling state changed: {state}");
     }
 
     private bool UpdateSdpOffer()

@@ -169,15 +169,8 @@ public class SignalingServer : ISignalingServer
 
         sdpOffer = offer;
         logger.Log($"[RTC] SDP offer received from adapter");
-        await DispatchMessageAsync("SdpOffer", sdpOffer);
+        await BroadcastMessageAsync("SdpOffer", sdpOffer);
     }
-
-    private async Task DispatchMessageAsync<TData>(string type, TData data)
-    {
-        string payload = JsonSerializer.Serialize(data);
-        await BroadcastMessageAsync(type, payload);
-    }
-    
     private async Task SendMessageAsync(string clientId, string type, string data)
     {
         if (!clients.TryGetValue(clientId, out var ws))
@@ -234,9 +227,15 @@ public class SignalingServer : ISignalingServer
         await Task.WhenAll(tasks);
     }
 
+    private async Task BroadcastMessageAsync<TData>(string type, TData data)
+    {
+        string payload = JsonSerializer.Serialize(data);
+        await BroadcastMessageAsync(type, payload);
+    }
+
     private async Task OnClientAddedAsync(string clientId)
     {
-        await DispatchMessageAsync("ClientAdded", new ClientAddedMessage(clientId, clients.Count));
+        await BroadcastMessageAsync("ClientAdded", new ClientAddedMessage(clientId, clients.Count));
         if (sdpOffer is not null)
         {
             if (clientId != "rtc-adapter")
