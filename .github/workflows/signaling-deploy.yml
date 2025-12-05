@@ -1,0 +1,26 @@
+name: Deploy signaling server to Fly.io
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'signaling/**'
+      - '.github/workflows/signaling-deploy.yml'
+
+jobs:
+  deploy:
+    name: Deploy signaling server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      
+      - name: Deploy to Fly.io
+        run: |
+          cd signaling
+          flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          
