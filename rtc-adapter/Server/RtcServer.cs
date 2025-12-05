@@ -62,7 +62,7 @@ public class RtcServer: IRtcServer
     {
         logger.Log($"[WS] Connecting to signaling server at {settings.signalingWs}...");
         
-        var uri = new Uri($"{settings.signalingWs}?clientId=adapter");
+        var uri = new Uri($"{settings.signalingWs}?clientId={CLIENT_ID}");
         await ws.ConnectAsync(uri, CancellationToken.None);
         
         logger.Log("[WS] Connected to signaling server.");
@@ -120,13 +120,11 @@ public class RtcServer: IRtcServer
 
         switch (type)
         {
-            case "ClientAdded":
-                break;
-
             case "SdpAnswer":
                 HandleSdpAnswerMessage(data);
                 break;
             
+            case "ClientAdded":
             case "SdpOffer":
                 break;
 
@@ -223,7 +221,11 @@ public class RtcServer: IRtcServer
             return;
         }
 
-        Task.Run(async () => await SendMessageAsync("SdpOffer", sdpOffer));
+        Task.Run(async () =>
+        {
+            logger.Log("[RTC] Sending SDP offer");
+            await SendMessageAsync("SdpOffer", sdpOffer);
+        });
     }
 
     private void HandleSdpAnswerMessage(string sdp)

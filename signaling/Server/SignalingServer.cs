@@ -8,6 +8,8 @@ namespace Plml.Signaling;
 
 public class SignalingServer : ISignalingServer
 {
+    private const string RTC_ADAPTER_CLIENT_ID = "rtc-adapter";
+
     private readonly int _port;
     private readonly HttpListener _listener;
     private readonly ConcurrentDictionary<string, WebSocket> clients = new();
@@ -132,10 +134,10 @@ public class SignalingServer : ISignalingServer
                 HandleLogMessage(data, clientId);
                 break;
             case "SdpAnswer":
-                await HandleSdpAnswerMessageAsync(data);
+                await HandleSdpAnswerMessageAsync(data, clientId);
                 break;
             case "SdpOffer":
-                await HandleSdpOfferMessageAsync(data);
+                await HandleSdpOfferMessageAsync(data, clientId);
                 break;
             default:
                 logger.Error($"[WS] Unknown message type: {type} from client {clientId}");
@@ -145,14 +147,28 @@ public class SignalingServer : ISignalingServer
 
     private void HandleLogMessage(string message, string clientId) => logger.Log($"[WS] Log from '{clientId}': {message}");
 
-    private async Task HandleSdpAnswerMessageAsync(string answer)
+    private async Task HandleSdpAnswerMessageAsync(string answer, string clientId)
     {
+        if (clientId == RTC_ADAPTER_CLIENT_ID)
+        {
+            logger.Error($"[RTC] Received SDP answer from RTC adapter");
+            return;
+        }
+
+        logger.Log($"[RTC] Received SDP answer from client {clientId}");
         await BroadcastMessageAsync("SdpAnswer", answer);
     }
 
-    private async Task HandleSdpOfferMessageAsync(string offer)
+    private async Task HandleSdpOfferMessageAsync(string offer, string clientId)
     {
+        if (clientId != RTC_ADAPTER_CLIENT_ID)
+        {
+            logger.Error($"[RTC] Only the RTC adapter can send SDP offers");
+            return;
+        }
+
         sdpOffer = offer;
+        logger.Log($"[RTC] SDP offer received from adapter");
         await DispatchMessageAsync("SdpOffer", sdpOffer);
     }
 
