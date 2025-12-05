@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { generateId } from "../lib/util";
 import type { IncomingMessage, OutgoingMessage } from "../messaging/messages";
+import { getSettings } from "../lib/settings";
 
 const CONNECT_INTERVAL = 1000;
 
@@ -20,11 +21,8 @@ const getNextDuration = (attempts: number) => {
 }
 
 const getWsUrl = () => {
-    const wsHost = import.meta.env.VITE_WS_HOST || 'localhost'
-    const wsPort = import.meta.env.VITE_WS_PORT || 5174
-    const useReverseProxy = import.meta.env.VITE_USE_REVERSE_PROXY === 'true'
-
-    const url = `${ useReverseProxy ? `wss://${wsHost}` : `ws://${wsHost}:${wsPort}` }/ws?clientId=${clientId}`
+    const { wsUrl } = getSettings();
+    const url = `${ wsUrl }?clientId=${clientId}`
     return url;
 }
 
