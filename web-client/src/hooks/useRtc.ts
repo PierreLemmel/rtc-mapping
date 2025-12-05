@@ -58,7 +58,6 @@ export const useRtc = () => {
     }, [pc])
 
     useEffectAsync(async () => {
-        console.log(sdpOffer)
         if (sdpOffer) {
             await pc.setRemoteDescription(new RTCSessionDescription({
                 type: 'offer',

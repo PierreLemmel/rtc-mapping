@@ -47,6 +47,8 @@ const RtcPage = () => {
                     setOffer(sdpOffer)
                 }
                 break;
+            case 'SdpAnswer':
+                break;
             default:
                 console.log(`Unknown message type: ${message.type}`)
                 break;
