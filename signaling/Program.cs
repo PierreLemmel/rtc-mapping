@@ -1,4 +1,4 @@
-﻿using Plml.Signaling;
+using Plml.Signaling;
 
 int port = int.TryParse(Environment.GetEnvironmentVariable("PORT"), out int p) ? p : 8080;
 
@@ -11,5 +11,5 @@ try
 }
 catch (Exception ex)
 {
-    logger.Error($"[PROGRAM] Error while running Signaling server: {ex.Message}");
+    logger.Error("PROGRAM", $"Error while running Signaling server: {ex.Message}");
 }

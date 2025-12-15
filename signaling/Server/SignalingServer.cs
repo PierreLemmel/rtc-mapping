@@ -65,19 +65,19 @@ public class SignalingServer : ISignalingServer
         string? clientId = context.Request.QueryString.Get("clientId");
         if (clientId is null)
         {
-            logger.Error("[WS] Client ID is required");
+            logger.Error("WS", "Client ID is required");
             await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Client ID is required", CancellationToken.None);
             return;
         }
 
         if (!clients.TryAdd(clientId, ws))
         {
-            logger.Error($"[WS] Client ID {clientId} already exists");
+            logger.Error("WS", $"Client ID {clientId} already exists");
             await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Client ID already exists", CancellationToken.None);
             return;
         }
 
-        logger.Log($"[WS] Client {clientId} connected");
+        logger.Log("WS", $"Client {clientId} connected");
 
         await Task.Delay(100);
         await OnClientAddedAsync(clientId);
@@ -90,7 +90,7 @@ public class SignalingServer : ISignalingServer
                 
                 if (message.MessageType == WebSocketMessageType.Close)
                 {
-                    logger.Log($"[WS] Client {clientId} requested close.");
+                    logger.Log("WS", $"Client {clientId} requested close.");
                     await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Bye", CancellationToken.None);
                     break;
                 }
@@ -104,20 +104,20 @@ public class SignalingServer : ISignalingServer
 
                 if (msg is null)
                 {
-                    logger.Error($"[WS] Failed to deserialize message: {json}");
+                    logger.Error("WS", $"Failed to deserialize message: {json}");
                     continue;
                 }
                 await HandleMessageAsync(msg, ws);
             }
             catch (Exception ex)
             {
-                logger.Error($"[WS] Failed to receive message: {ex.Message}");
+                logger.Error("WS", $"Failed to receive message: {ex.Message}");
                 continue;
             }
         }
 
         clients.TryRemove(clientId, out _);
-        logger.Log($"[WS] Client {clientId} disconnected");
+        logger.Log("WS", $"Client {clientId} disconnected");
         ws.Dispose();
     }
 
@@ -140,22 +140,22 @@ public class SignalingServer : ISignalingServer
                 await HandleSdpOfferMessageAsync(data, clientId);
                 break;
             default:
-                logger.Error($"[WS] Unknown message type: {type} from client {clientId}");
+                logger.Error("WS", $"Unknown message type: {type} from client {clientId}");
                 break;
         }
     }
 
-    private void HandleLogMessage(string message, string clientId) => logger.Log($"[WS] Log from '{clientId}': {message}");
+    private void HandleLogMessage(string message, string clientId) => logger.Log("WS", $"Log from '{clientId}': {message}");
 
     private async Task HandleSdpAnswerMessageAsync(string answer, string clientId)
     {
         if (clientId == RTC_ADAPTER_CLIENT_ID)
         {
-            logger.Error($"[RTC] Received SDP answer from RTC adapter");
+            logger.Error("RTC", "Received SDP answer from RTC adapter");
             return;
         }
 
-        logger.Log($"[RTC] Received SDP answer from client {clientId}");
+        logger.Log("RTC", $"Received SDP answer from client {clientId}");
         await BroadcastMessageAsync("SdpAnswer", answer);
     }
 
@@ -163,25 +163,25 @@ public class SignalingServer : ISignalingServer
     {
         if (clientId != RTC_ADAPTER_CLIENT_ID)
         {
-            logger.Error($"[RTC] Only the RTC adapter can send SDP offers");
+            logger.Error("RTC", "Only the RTC adapter can send SDP offers");
             return;
         }
 
         sdpOffer = offer;
-        logger.Log($"[RTC] SDP offer received from adapter");
+        logger.Log("RTC", "SDP offer received from adapter");
         await BroadcastMessageAsync("SdpOffer", sdpOffer);
     }
     private async Task SendMessageAsync(string clientId, string type, string data)
     {
         if (!clients.TryGetValue(clientId, out var ws))
         {
-            logger.Error($"[WS] Client {clientId} not found");
+            logger.Error("WS", $"Client {clientId} not found");
             return;
         }
 
         if (ws.State != WebSocketState.Open)
         {
-            logger.Error($"[WS] Client {clientId} is not open");
+            logger.Error("WS", $"Client {clientId} is not open");
             return;
         }
 
@@ -195,7 +195,7 @@ public class SignalingServer : ISignalingServer
         }
         catch (Exception ex)
         {
-            logger.Error($"[WS] Failed to send message to client {clientId}: {ex.Message}");
+            logger.Error("WS", $"Failed to send message to client {clientId}: {ex.Message}");
         }
     }
 
@@ -210,7 +210,7 @@ public class SignalingServer : ISignalingServer
             var ws = c.Value;
             if (ws.State != WebSocketState.Open)
             {
-                logger.Error($"[WS] Client {c.Key} is not open");
+                logger.Error("WS", $"Client {c.Key} is not open");
                 return;
             }
 
@@ -220,7 +220,7 @@ public class SignalingServer : ISignalingServer
             }
             catch (Exception ex)
             {
-                logger.Error($"[WS] Failed to send message to client {c.Key}: {ex.Message}");
+                logger.Error("WS", $"Failed to send message to client {c.Key}: {ex.Message}");
             }
         });
         

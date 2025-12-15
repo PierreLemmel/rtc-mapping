@@ -2,6 +2,6 @@ namespace Plml.RtcAdapter;
 
 public class Logger : ILogger
 {
-    public void Log(string message) => Console.WriteLine(message);
-    public void Error(string message) => Console.Error.WriteLine(message);
+    public void Log(string category, string message) => Console.WriteLine($"[{category}] {message}");
+    public void Error(string category, string message) => Console.Error.WriteLine($"[{category}] {message}");
 }
