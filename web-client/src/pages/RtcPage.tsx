@@ -8,6 +8,17 @@ import { useRtc } from "../hooks/useRtc";
 const RtcPage = () => {
 
     const videoRef = useRef<HTMLVideoElement>(null)
+    const [tracksInitialized, setTracksInitialized] = useState(false)
+
+    const {
+        sdpAnswer,
+        setOffer,
+        addTrack,
+        localTracks,
+        remoteTracks,
+        connected: rtcConnected,
+    } = useRtc();
+
 
     const [mediaStream, setMediaStream] = useState<MediaStream | null>(null)
     useEffectAsync(async () => {
@@ -16,20 +27,14 @@ const RtcPage = () => {
         stream.getTracks().forEach(track => {
             if (track.kind === 'video') {
                 videoRef.current!.srcObject = stream
+                addTrack(track, stream)
             }
         })
+        setTracksInitialized(true)
     }, [])
 
 
     const [clientCount, setClientCount] = useState<number>(0)
-
-    const {
-        sdpAnswer,
-        setOffer,
-        localTracks,
-        remoteTracks,
-        connected:rtcConnected
-    } = useRtc();
 
     const onMessage = useCallback((message: IncomingMessage) => {
         switch (message.type) {
@@ -54,21 +59,24 @@ const RtcPage = () => {
                 break;
         }
     }, [setOffer])
-    const { clientId, isConnected, sendMessage } = useWs(onMessage)
+    const { clientId, sendMessage } = useWs(onMessage)
 
     useEffect(() => {
-        if (sdpAnswer && sendMessage) {
+        if (sdpAnswer && sendMessage && tracksInitialized) {
             sendMessage({ type: 'SdpAnswer', data: sdpAnswer })
         }
-    }, [sdpAnswer, sendMessage])
+    }, [sdpAnswer, sendMessage, tracksInitialized])
+
+
 
 	return <div>
         <div>WebRtcTest</div>
+        <div>Tracks Initialized: {tracksInitialized ? 'Yes' : 'No'}</div>
         <div>Client ID: {clientId ?? 'No client ID'}</div>
         <div>Client Count: {clientCount}</div>
         <div>RTC Connected: {rtcConnected ? 'Yes' : 'No'}</div>
-        <div>Local Tracks: {localTracks.length}</div>
         <div>Remote Tracks: {remoteTracks.length}</div>
+        <div>Local Tracks: {localTracks.length}</div>
         {sendMessage && <div>Send Message: <button onClick={() => sendMessage({ type: 'Log', data: 'Kikou' })}>Send Message</button></div>}
         <video ref={videoRef} autoPlay playsInline muted />
     </div>

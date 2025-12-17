@@ -12,6 +12,7 @@ export const useRtc = () => {
             })),
             iceCandidatePoolSize
         })
+
         return pc
     }, [])
 
@@ -30,13 +31,17 @@ export const useRtc = () => {
         setSdpOffer(null)
 
         pc.ondatachannel = (event) => {
-            console.log('ondatachannel')
-            console.log(event)
+            console.log(`Data channel opened: ${event.channel.label}`)
+
+            const dataChannel = event.channel;
+            setDataChannels(prev => [...prev, dataChannel])
         }
 
         pc.ontrack = (event) => {
-            console.log('ontrack')
-            console.log(event)
+            console.log(`Track added: ${event.track.kind}`)
+
+            const track = event.track;
+            setRemoteTracks(prev => [...prev, track])
         }
 
         pc.onconnectionstatechange = (event) => {
@@ -79,12 +84,26 @@ export const useRtc = () => {
             setSdpAnswer(answer.sdp)
         }
     }, [sdpOffer])
-    
+
+    const addTrack = useCallback((track: MediaStreamTrack, stream: MediaStream) => {
+        pc.addTrack(track, stream)
+        setLocalTracks(prev => [...prev, track])
+    }, [pc])
+
+
+    useEffect(() => {
+        if (connected) {
+            console.log('RTC connected')
+            pc.createDataChannel('test')
+            
+            console.log(localTracks)
+        }
+    }, [connected])
     return {
         hasReceivedOffer: sdpOffer !== null,
         setOffer: setSdpOffer,
         sdpAnswer,
-        addTrack: pc.addTrack,
+        addTrack,
         dataChannels,
         localTracks,
         remoteTracks,

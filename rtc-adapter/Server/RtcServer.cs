@@ -1,10 +1,11 @@
+using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using DataChannelDotnet;
-using DataChannelDotnet.Bindings;
-using DataChannelDotnet.Data;
-using DataChannelDotnet.Impl;
+using SIPSorcery.Net;
+using SIPSorcery.SIP.App;
+using SIPSorceryMedia.Abstractions;
+using SIPSorceryMedia.FFmpeg;
 
 namespace Plml.RtcAdapter;
 
@@ -15,41 +16,87 @@ public class RtcServer: IRtcServer
     private readonly ILogger logger;
     private readonly Settings settings;
     
-    private IRtcPeerConnection pc;
+    private FFmpegVideoEndPoint videoEndpoint;
+    private RTCPeerConnection pc;
     private ClientWebSocket ws;
     private string? sdpOffer;
 
-    private void ResetPeerConnection()
+    private async Task ResetPeerConnection()
     {
         pc?.Dispose();
-        pc = CreateNewRtcPeerConnection();
-        InitializePeerConnection();
+        videoEndpoint?.Dispose();
+        (pc, videoEndpoint) = CreateNewConnection();
+
+        await InitializePeerConnection();
 
         SendSdpOffer();
     }
 
-    private void InitializePeerConnection()
+    private async Task InitializePeerConnection()
     {
-        pc.OnConnectionStateChange += OnConnectionStateChange;
-        pc.OnDataChannel += OnDataChannel;
-        pc.OnTrack += OnTrack;
-        pc.OnSignalingStateChange += OnSignalingStateChange;
-
-        pc.CreateDataChannel(new RtcCreateDataChannelArgs()
+        videoEndpoint.OnVideoSinkDecodedSampleFaster += (RawImage rawImage) =>
         {
-            Label = settings.dataChannelLabel,
-            Protocol = RtcDataChannelProtocol.Binary
-        });
+            logger.Log("RTC", $"Video frame received faster: {rawImage.Width}x{rawImage.Height}");
+        };
 
+        videoEndpoint.OnVideoSinkDecodedSample += (byte[] bmp, uint width, uint height, int stride, VideoPixelFormatsEnum pixelFormat) =>
+        {
+            logger.Log("RTC", $"Video frame received: {bmp.Length}");
+        };
+
+        pc.onconnectionstatechange += OnConnectionStateChange;
+
+        pc.ondatachannel += OnDataChannel;
+
+        pc.OnVideoFormatsNegotiated += OnVideoFormatsNegotiated;
+        pc.OnAudioFormatsNegotiated += OnAudioFormatsNegotiated;
+
+        pc.OnVideoFrameReceived += OnVideoFrameReceived;
+        pc.OnAudioFrameReceived += OnAudioFrameReceived;
+        
+        pc.onsignalingstatechange += OnSignalingStateChange;
+
+
+        MediaStreamTrack audioTrack = new(
+            SDPMediaTypesEnum.audio,
+            isRemote: false,
+            capabilities: [new(SDPWellKnownMediaFormatsEnum.PCMU)],
+            streamStatus:MediaStreamStatusEnum.RecvOnly
+        );
+
+        MediaStreamTrack videoTrack = new([
+            new VideoFormat(
+                VideoCodecsEnum.VP8,
+                96
+            ),
+            new VideoFormat(
+                VideoCodecsEnum.H264,
+                97,
+                parameters:"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+            )
+        ], MediaStreamStatusEnum.RecvOnly);
+
+        pc.addTrack(audioTrack);
+        pc.addTrack(videoTrack);
+
+        var offer = pc.createOffer();
+        await pc.setLocalDescription(offer);
     }
-    private IRtcPeerConnection CreateNewRtcPeerConnection()
+    private (RTCPeerConnection rtcConnection, FFmpegVideoEndPoint videoEndpoint) CreateNewConnection()
     {
-        IRtcPeerConnection pc = new RtcPeerConnection(new RtcPeerConfiguration()
+        RTCPeerConnection pc = new RTCPeerConnection(new RTCConfiguration()
         {
-            IceServers = settings.iceServers
+            iceServers = settings.iceServers.Select(server => new RTCIceServer()
+            {
+                urls = server
+            }).ToList()
         });
 
-        return pc;
+        FFmpegVideoEndPoint videoEndpoint = new FFmpegVideoEndPoint();
+        videoEndpoint.RestrictFormats(f => f.Codec == VideoCodecsEnum.H264);
+
+
+        return (pc, videoEndpoint);
     }
 
 
@@ -59,7 +106,7 @@ public class RtcServer: IRtcServer
         this.settings = settings;
 
         ws = new ClientWebSocket();
-        pc = CreateNewRtcPeerConnection();
+        (pc, videoEndpoint) = CreateNewConnection();
     }
 
     public async Task Start()
@@ -71,7 +118,7 @@ public class RtcServer: IRtcServer
         
         logger.Log("WS", "Connected to signaling server.");
 
-        InitializePeerConnection();
+        await InitializePeerConnection();
 
         await ReceiveLoop();
     }
@@ -151,38 +198,59 @@ public class RtcServer: IRtcServer
         await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
     }
 
-    private void OnConnectionStateChange(IRtcPeerConnection sender, rtcState state)
+    private async void OnConnectionStateChange(RTCPeerConnectionState state)
     {
-        logger.Log("RTC", $"Connection state changed: {state}");
+        logger.Log("RTC", $"Connection state changed: {state.ToString().ToUpper()}");
         switch (state)
         {
-            case rtcState.RTC_CLOSED:
+            case RTCPeerConnectionState.closed:
                 logger.Log("RTC", "Connection closed");
-                ResetPeerConnection();
+                await ResetPeerConnection();
                 logger.Log("RTC", "Peer connection reset, ready to go");
                 break;
-            default:
-                logger.Log("RTC", $"Connection state changed: {state}");
+            case RTCPeerConnectionState.connected:
+                logger.Log("RTC", "Connection established");
+                break;
+            case RTCPeerConnectionState.failed:
+                logger.Error("RTC", "Connection failed");
+                await ResetPeerConnection();
+                logger.Log("RTC", "Peer connection reset");
                 break;
         }
     }
 
-    private void OnDataChannel(IRtcPeerConnection sender, IRtcDataChannel channel)
+    private void OnDataChannel(RTCDataChannel channel)
     {
-        logger.Log("RTC", $"Data channel opened: {channel.Label}");
+        logger.Log("RTC", $"Data channel opened: {channel.label}");
     }
 
-    private void OnTrack(IRtcPeerConnection sender, IRtcTrack track)
+    private void OnVideoFormatsNegotiated(List<VideoFormat> formats)
     {
-        logger.Log("RTC", $"Track added: {track.Description}");
+        logger.Log("RTC", $"Video formats negotiated: {formats.Count}");
     }
 
-    private void OnSignalingStateChange(IRtcPeerConnection sender, rtcSignalingState state)
+    private void OnAudioFormatsNegotiated(List<AudioFormat> formats)
     {
-        logger.Log("RTC", $"Signaling state changed: {state}");
+        logger.Log("RTC", $"Audio formats negotiated: {formats.Count}");
+    }
+
+    private void OnVideoFrameReceived(IPEndPoint remoteEP, uint timestamp, byte[] frame, VideoFormat format)
+    {
+        logger.Log("RTC", $"Video frame received: {frame.Length}");
+    }
+
+    private void OnAudioFrameReceived(EncodedAudioFrame frame)
+    {
+        logger.Log("RTC", $"Audio frame received: {frame.DurationMilliSeconds}");
+    }
+
+    private void OnSignalingStateChange()
+    {
+        RTCSignalingState state = pc.signalingState;
+        logger.Log("RTC", $"Signaling state changed: {state.ToString().ToUpper()}");
         switch (state)
         {
-            case rtcSignalingState.RTC_SIGNALING_HAVE_LOCAL_OFFER:
+            case RTCSignalingState.have_local_offer:
                 if (!UpdateSdpOffer())
                 {
                     logger.Error("RTC", "Failed to update SDP offer");
@@ -192,30 +260,26 @@ public class RtcServer: IRtcServer
                 logger.Log("RTC", "SDP offer created");
                 break;
 
-            case rtcSignalingState.RTC_SIGNALING_STABLE:
-                break;
-            
-            default:
-                logger.Log("RTC", $"Unexpected Signaling state changed: {state}");
+            case RTCSignalingState.stable:
                 break;
         }
     }
 
     private bool UpdateSdpOffer()
     {
-        if (pc.LocalDescription is null)
+        if (pc.localDescription is null)
         {
             logger.Error("RTC", "Peer connection has no local description, cannot send SDP offer");
             return false;
         }
 
-        if (pc.LocalDescriptionType != RtcDescriptionType.Offer)
+        if (pc.localDescription.type != RTCSdpType.offer)
         {
             logger.Error("RTC", "Local description is not an offer");
             return false;
         }
 
-        sdpOffer = pc.LocalDescription;
+        sdpOffer = pc.localDescription.sdp.ToString();
         return true;
     }
 
@@ -237,10 +301,13 @@ public class RtcServer: IRtcServer
     private void HandleSdpAnswerMessage(string sdp)
     {
         logger.Log("RTC", "Received SDP Answer");
-        pc.SetRemoteDescription(new RtcDescription()
+        SDP remoteDescription = SDP.ParseSDPDescription(sdp);
+        SetDescriptionResultEnum result = pc.SetRemoteDescription(SdpType.answer, remoteDescription);
+        if (result != SetDescriptionResultEnum.OK)
         {
-            Sdp = sdp,
-            Type = RtcDescriptionType.Answer
-        });
+            logger.Error("RTC", $"Failed to set remote description: {result}");
+            return;
+        }
+        logger.Log("RTC", "Remote description set");
     }
 }

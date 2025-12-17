@@ -1,8 +1,6 @@
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using Plml.RtcAdapter;
 
-using Plml.RtcAdapter.NDI;
 
 
 var settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
@@ -22,34 +20,13 @@ Settings settings = JsonSerializer.Deserialize<Settings>(jsonContent, options) ?
 ILogger logger = new Logger();
 
 
-int w = 100;
-int h = 100;
+IRtcServer rtcServer = new RtcServer(settings, logger);
 
-int id = new Random().Next(0, 999);
-using (INDISender sender = new NDISender(logger, $"NDI Sender - Test {id:000}", ["Test", "Plml"]))
-using (NDIVideoFrame frame = new NDIVideoFrame(w, h))
+try
 {
-    unsafe 
-    {
-        NativeMemory.Fill(frame.Data, (nuint)(w * h * 4), (byte)255);
-    }
-
-    while (true)
-    {
-        sender.SendFrame(frame);
-        await Task.Delay(1000 / 30);
-    }
+    await rtcServer.Start();
 }
-
-
-// IRtcServer rtcServer = new RtcServer(settings, logger);
-
-// try
-// {
-//     await rtcServer.Start();
-// }
-// catch (Exception ex)
-// {
-//     logger.Error("PROGRAM", $"Error while running WebSocket server: {ex.Message}");
-// }
-
+catch (Exception ex)
+{
+    logger.Error("PROGRAM", $"Error while running WebSocket server: {ex.Message}");
+}
