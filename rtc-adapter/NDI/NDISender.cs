@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 namespace Plml.RtcAdapter.NDI;
 
@@ -39,10 +40,9 @@ public class NDISender : INDISender
         send_handle = result;
     }
 
-    public void SendFrame(NDIVideoFrame frame)
+    public void SendFrame(NDILib.video_frame_v2_t frame)
     {
-        var ndiFrame = frame.nativeFrame;
-        NDILib.SendVideoSync(send_handle, ref ndiFrame);
+        NDILib.SendVideoSync(send_handle, ref frame);
     }
 
     ~NDISender()

@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace Plml.RtcAdapter.NDI;
 
 
-public class NDIVideoFrame : IDisposable
+public class NDIVideoFrame
 {
     internal NDILib.video_frame_v2_t nativeFrame;
 
@@ -15,7 +15,7 @@ public class NDIVideoFrame : IDisposable
     public int Stride => nativeFrame.line_stride_in_bytes;
     public unsafe byte* Data => nativeFrame.p_data;
 
-    public unsafe NDIVideoFrame(int width, int height)
+    public unsafe NDIVideoFrame(int width, int height, NDILib.FourCC_video_type_e videoType, long timestamp = 0)
     {
         int stride = NDIUtils.CalculateStride(width, 32, 8);
         uint bufferSize = Convert.ToUInt32(stride * height);
@@ -25,7 +25,7 @@ public class NDIVideoFrame : IDisposable
         {
             xres = width,
             yres = height,
-            fourCC = NDILib.FourCC_video_type_e.RGBA,
+            fourCC = videoType,
             frame_rate_N = 30,
             frame_rate_D = 1,
             picture_aspect_ratio = (float)width / height,
@@ -33,8 +33,7 @@ public class NDIVideoFrame : IDisposable
             timecode = NDILib.send_timecode_synthesize,
             p_data = buffer,
             line_stride_in_bytes = stride,
-            p_metadata = "<hello />",
-            timestamp = 0
+            timestamp = timestamp
         };
     }
 

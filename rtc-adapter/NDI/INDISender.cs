@@ -4,5 +4,5 @@ public interface INDISender : IDisposable
 {
     string Name { get; }
 
-    void SendFrame(NDIVideoFrame frame);
+    void SendFrame(NDILib.video_frame_v2_t frame);
 }

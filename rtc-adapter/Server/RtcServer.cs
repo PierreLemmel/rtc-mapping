@@ -5,7 +5,8 @@ using System.Text.Json;
 using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
-using SIPSorceryMedia.FFmpeg;
+using Microsoft.Extensions.Logging;
+
 
 namespace Plml.RtcAdapter;
 
@@ -16,16 +17,16 @@ public class RtcServer: IRtcServer
     private readonly ILogger logger;
     private readonly Settings settings;
     
-    private FFmpegVideoEndPoint videoEndpoint;
     private RTCPeerConnection pc;
     private ClientWebSocket ws;
     private string? sdpOffer;
 
+    private Dictionary<string, RtcServerConnection> connections;
+
     private async Task ResetPeerConnection()
     {
         pc?.Dispose();
-        videoEndpoint?.Dispose();
-        (pc, videoEndpoint) = CreateNewConnection();
+        pc = CreateNewConnection();
 
         await InitializePeerConnection();
 
@@ -34,16 +35,6 @@ public class RtcServer: IRtcServer
 
     private async Task InitializePeerConnection()
     {
-        videoEndpoint.OnVideoSinkDecodedSampleFaster += (RawImage rawImage) =>
-        {
-            logger.Log("RTC", $"Video frame received faster: {rawImage.Width}x{rawImage.Height}");
-        };
-
-        videoEndpoint.OnVideoSinkDecodedSample += (byte[] bmp, uint width, uint height, int stride, VideoPixelFormatsEnum pixelFormat) =>
-        {
-            logger.Log("RTC", $"Video frame received: {bmp.Length}");
-        };
-
         pc.onconnectionstatechange += OnConnectionStateChange;
 
         pc.ondatachannel += OnDataChannel;
@@ -82,21 +73,17 @@ public class RtcServer: IRtcServer
         var offer = pc.createOffer();
         await pc.setLocalDescription(offer);
     }
-    private (RTCPeerConnection rtcConnection, FFmpegVideoEndPoint videoEndpoint) CreateNewConnection()
+    private RTCPeerConnection CreateNewConnection()
     {
-        RTCPeerConnection pc = new RTCPeerConnection(new RTCConfiguration()
+        RTCPeerConnection newConnection = new RTCPeerConnection(new RTCConfiguration()
         {
-            iceServers = settings.iceServers.Select(server => new RTCIceServer()
+            iceServers = settings.IceServers.Select(server => new RTCIceServer()
             {
                 urls = server
             }).ToList()
         });
 
-        FFmpegVideoEndPoint videoEndpoint = new FFmpegVideoEndPoint();
-        videoEndpoint.RestrictFormats(f => f.Codec == VideoCodecsEnum.H264);
-
-
-        return (pc, videoEndpoint);
+        return newConnection;
     }
 
 
@@ -106,14 +93,17 @@ public class RtcServer: IRtcServer
         this.settings = settings;
 
         ws = new ClientWebSocket();
-        (pc, videoEndpoint) = CreateNewConnection();
+        pc = CreateNewConnection();
+        connections = new Dictionary<string, RtcServerConnection>() {
+            { "default", new RtcServerConnection(settings, "default", logger) }
+        };
     }
 
     public async Task Start()
     {
-        logger.Log("WS", $"Connecting to signaling server at {settings.signalingWs}...");
+        logger.Log("WS", $"Connecting to signaling server at {settings.SignalingWs}...");
         
-        var uri = new Uri($"{settings.signalingWs}?clientId={CLIENT_ID}");
+        var uri = new Uri($"{settings.SignalingWs}?clientId={CLIENT_ID}");
         await ws.ConnectAsync(uri, CancellationToken.None);
         
         logger.Log("WS", "Connected to signaling server.");
@@ -210,6 +200,12 @@ public class RtcServer: IRtcServer
                 break;
             case RTCPeerConnectionState.connected:
                 logger.Log("RTC", "Connection established");
+
+                uint localSsrc = pc.VideoLocalTrack.Ssrc;
+                uint remoteSsrc = pc.VideoRemoteTrack.Ssrc;
+                RTCPFeedback pliFeedback = new(localSsrc, remoteSsrc, PSFBFeedbackTypesEnum.PLI);
+                pc.SendRtcpFeedback(SDPMediaTypesEnum.video, pliFeedback);
+                
                 break;
             case RTCPeerConnectionState.failed:
                 logger.Error("RTC", "Connection failed");
@@ -224,9 +220,11 @@ public class RtcServer: IRtcServer
         logger.Log("RTC", $"Data channel opened: {channel.label}");
     }
 
-    private void OnVideoFormatsNegotiated(List<VideoFormat> formats)
+    private async void OnVideoFormatsNegotiated(List<VideoFormat> formats)
     {
-        logger.Log("RTC", $"Video formats negotiated: {formats.Count}");
+        logger.Log("RTC", $"Video formats negotiated: {string.Join(", ", formats.Select(f => f.Codec.ToString()))}");
+        var connection = connections["default"];
+        await connection.SetVideoSinkFormat(formats[0]);
     }
 
     private void OnAudioFormatsNegotiated(List<AudioFormat> formats)
@@ -236,7 +234,8 @@ public class RtcServer: IRtcServer
 
     private void OnVideoFrameReceived(IPEndPoint remoteEP, uint timestamp, byte[] frame, VideoFormat format)
     {
-        logger.Log("RTC", $"Video frame received: {frame.Length}");
+        var connection = connections["default"];
+        connection.HandleVideoFrame(remoteEP, timestamp, frame, format);
     }
 
     private void OnAudioFrameReceived(EncodedAudioFrame frame)

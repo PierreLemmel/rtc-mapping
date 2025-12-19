@@ -90,15 +90,6 @@ export const useRtc = () => {
         setLocalTracks(prev => [...prev, track])
     }, [pc])
 
-
-    useEffect(() => {
-        if (connected) {
-            console.log('RTC connected')
-            pc.createDataChannel('test')
-            
-            console.log(localTracks)
-        }
-    }, [connected])
     return {
         hasReceivedOffer: sdpOffer !== null,
         setOffer: setSdpOffer,
