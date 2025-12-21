@@ -4,6 +4,7 @@ using FFmpeg.AutoGen;
 using Microsoft.Extensions.Logging;
 using Plml.RtcAdapter.NDI;
 using SIPSorcery.Net;
+using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
 using SIPSorceryMedia.FFmpeg;
 
@@ -12,16 +13,22 @@ namespace Plml.RtcAdapter;
 
 public class RtcServerConnection : IDisposable
 {
-
     private readonly Settings settings;
     private readonly ILogger logger;
 
     private NDISender ndiSender;
-    private MyFFmpegVideoEndPoint videoEndpoint;
+    private IVideoBridge videoBridge;
 
     private bool disposed = false;
 
     private string connectionId;
+
+    private RTCPeerConnection pc;
+
+    private string? sdpOffer;
+
+    public event Action<string,string>? OnSdpOffer;
+    public event Action<string>? OnRTCConnected;
 
     public RtcServerConnection(Settings settings, string connectionId, ILogger logger)
     {
@@ -29,27 +36,94 @@ public class RtcServerConnection : IDisposable
         this.logger = logger;
         this.connectionId = connectionId;
         
+
+        pc = CreateNewConnection();
+
         ndiSender = new NDISender(Logger.Default, connectionId, [settings.NdiGroup]);
-        videoEndpoint = new MyFFmpegVideoEndPoint();
-        videoEndpoint.logger = logger;
-        
-        videoEndpoint.RestrictFormats(format => format.Codec == VideoCodecsEnum.VP8);
-
-        videoEndpoint.OnVideoSinkDecodedSampleFaster += OnVideoSinkDecodedSampleFaster;
+        videoBridge = new VideoBridge(logger, new FFmpegVideoEncoder());
     }
 
-    public async Task SetVideoSinkFormat(VideoFormat format)
+    public void Start() {
+        Task.Run(InitializePeerConnection);
+    }
+    private async Task ResetPeerConnection()
     {
-        videoEndpoint.SetVideoSinkFormat(format);
-        logger.Log("RTC", $"Video sink format for connection {connectionId} set: {format.Codec}");
-        await videoEndpoint.StartVideo();
+        pc?.Dispose();
+        pc = CreateNewConnection();
+
+        await InitializePeerConnection();
+
+        SendSdpOffer();
     }
 
-    public void HandleVideoFrame(IPEndPoint remoteEP, uint timestamp, byte[] frame, VideoFormat format)
+    private async Task InitializePeerConnection()
+    {
+        pc.onconnectionstatechange += OnConnectionStateChange;
+
+        pc.ondatachannel += OnDataChannel;
+
+        pc.OnVideoFormatsNegotiated += OnVideoFormatsNegotiated;
+        pc.OnAudioFormatsNegotiated += OnAudioFormatsNegotiated;
+
+        pc.OnVideoFrameReceived += OnVideoFrameReceived;
+        pc.OnAudioFrameReceived += OnAudioFrameReceived;
+        
+        pc.onsignalingstatechange += OnSignalingStateChange;
+
+
+        MediaStreamTrack audioTrack = new(
+            SDPMediaTypesEnum.audio,
+            isRemote: false,
+            capabilities: [new(SDPWellKnownMediaFormatsEnum.PCMU)],
+            streamStatus:MediaStreamStatusEnum.RecvOnly
+        );
+
+        MediaStreamTrack videoTrack = new([
+            new VideoFormat(
+                VideoCodecsEnum.VP8,
+                96
+            ),
+            new VideoFormat(
+                VideoCodecsEnum.H264,
+                97,
+                parameters:"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+            )
+        ], MediaStreamStatusEnum.RecvOnly);
+
+        pc.addTrack(audioTrack);
+        pc.addTrack(videoTrack);
+
+        var offer = pc.createOffer();
+        await pc.setLocalDescription(offer);
+    }
+
+    private RTCPeerConnection CreateNewConnection()
+    {
+        RTCPeerConnection newConnection = new RTCPeerConnection(new RTCConfiguration()
+        {
+            iceServers = settings.IceServers.Select(server => new RTCIceServer()
+            {
+                urls = server
+            }).ToList()
+        });
+
+        return newConnection;
+    }
+
+
+
+    private void HandleVideoFrame(IPEndPoint remoteEP, uint timestamp, byte[] frame, VideoFormat format)
     {
         try
         {
-            videoEndpoint.GotVideoFrame(remoteEP, timestamp, frame, format);
+            List<RawImage>? images = videoBridge.Decode(remoteEP, timestamp, frame, format);
+            if (images is not null)
+            {
+                foreach (RawImage image in images)
+                {
+                    SendImageToNDI(image, timestamp);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -58,36 +132,141 @@ public class RtcServerConnection : IDisposable
     }
 
 
-    private void OnVideoSinkDecodedSampleFaster(RawImage image)
+    private unsafe void SendImageToNDI(RawImage image, uint timestamp)
     {
-        // int stride = NDIUtils.CalculateStride(image.Width, 32, 8);
-        // uint bufferSize = Convert.ToUInt32(stride * height);
-        // byte* buffer = (byte*)NativeMemory.Alloc(bufferSize);
+        NDILib.FourCC_video_type_e fourCC = VideoUtils.SIPToNDIPixelFormat(image.PixelFormat);
+        int bpp = VideoUtils.GetBytesPerPixel(image.PixelFormat);
+        int stride = VideoUtils.CalculateStride(image.Width, bpp, 8);
 
-        // nativeFrame = new()
-        // {
-        //     xres = width,
-        //     yres = height,
-        //     fourCC = videoType,
-        //     frame_rate_N = 30,
-        //     frame_rate_D = 1,
-        //     picture_aspect_ratio = (float)width / height,
-        //     frame_format_type = NDILib.frame_format_type_e.progressive,
-        //     timecode = NDILib.send_timecode_synthesize,
-        //     p_data = buffer,
-        //     line_stride_in_bytes = stride,
-        //     timestamp = timestamp
-        // };
+        int width = image.Width;
+        int height = image.Height;
+
+
+        var frame = new NDILib.video_frame_v2_t()
+        {
+            xres = image.Width,
+            yres = image.Height,
+            fourCC = fourCC,
+            frame_rate_N = 30,
+            frame_rate_D = 1,
+            picture_aspect_ratio = (float)width / height,
+            frame_format_type = NDILib.frame_format_type_e.progressive,
+            timecode = NDILib.send_timecode_synthesize,
+            p_data = image.Sample,
+            line_stride_in_bytes = stride,
+            timestamp = timestamp
+        };
+
+        ndiSender.SendFrame(frame);
 
         Console.WriteLine($"Video sink decoded sample faster: {image.Width}x{image.Height} {image.PixelFormat}");
+    }
+
+    private async void OnConnectionStateChange(RTCPeerConnectionState state)
+    {
+        logger.Log("RTC", $"Connection state changed: {state.ToString().ToUpper()}");
+        switch (state)
+        {
+            case RTCPeerConnectionState.closed:
+                logger.Log("RTC", "Connection closed");
+                await ResetPeerConnection();
+                logger.Log("RTC", "Peer connection reset, ready to go");
+                break;
+            case RTCPeerConnectionState.connected:
+                logger.Log("RTC", "Connection established");
+                OnRTCConnected?.Invoke(connectionId);
+
+                break;
+            case RTCPeerConnectionState.failed:
+                logger.Error("RTC", "Connection failed");
+                await ResetPeerConnection();
+                logger.Log("RTC", "Peer connection reset");
+                break;
+        }
+    }
+
+    private void OnDataChannel(RTCDataChannel channel) => logger.Log("RTC", $"Data channel opened: {channel.label}");
+
+    private void OnVideoFormatsNegotiated(List<VideoFormat> formats) => logger.Log("RTC", $"Video formats negotiated: {string.Join(", ", formats.Select(f => f.Codec.ToString()))}");
+
+    private void OnAudioFormatsNegotiated(List<AudioFormat> formats) => logger.Log("RTC", $"Audio formats negotiated: {formats.Count}");
+
+    private void OnVideoFrameReceived(IPEndPoint remoteEP, uint timestamp, byte[] frame, VideoFormat format) => HandleVideoFrame(remoteEP, timestamp, frame, format);
+
+    private void OnAudioFrameReceived(EncodedAudioFrame frame) => logger.Log("RTC", $"Audio frame received: {frame.DurationMilliSeconds}");
+
+    private void OnSignalingStateChange()
+    {
+        RTCSignalingState state = pc.signalingState;
+        logger.Log("RTC", $"Signaling state changed: {state.ToString().ToUpper()}");
+        switch (state)
+        {
+            case RTCSignalingState.have_local_offer:
+                if (!UpdateSdpOffer())
+                {
+                    logger.Error("RTC", "Failed to update SDP offer");
+                    return;
+                }
+                logger.Log("RTC", "SDP offer created");
+                SendSdpOffer();
+                break;
+
+            case RTCSignalingState.stable:
+                break;
+        }
+    }
+
+    private bool UpdateSdpOffer()
+    {
+        if (pc.localDescription is null)
+        {
+            logger.Error("RTC", "Peer connection has no local description, cannot send SDP offer");
+            return false;
+        }
+
+        if (pc.localDescription.type != RTCSdpType.offer)
+        {
+            logger.Error("RTC", "Local description is not an offer");
+            return false;
+        }
+
+        sdpOffer = pc.localDescription.sdp.ToString();
+        return true;
+    }
+
+    private void SendSdpOffer()
+    {
+        if (sdpOffer is null)
+        {
+            logger.Error("RTC", "No SDP offer to send");
+            return;
+        }
+
+        OnSdpOffer?.Invoke(connectionId, sdpOffer);
+    }
+
+    public void HandleSdpAnswerMessage(string sdp)
+    {
+        if (pc.RemoteDescription is not null) return;
+
+        SDP remoteDescription = SDP.ParseSDPDescription(sdp);
+
+        SetDescriptionResultEnum result = pc.SetRemoteDescription(SdpType.answer, remoteDescription);
+        if (result != SetDescriptionResultEnum.OK)
+        {
+            logger.Error("RTC", $"Failed to set remote description: {result}");
+            return;
+        }
+        logger.Log("RTC", "Remote description set");
     }
 
     public void Dispose()
     {
         if (disposed) return;
 
+        pc?.Dispose();
         ndiSender?.Dispose();
-        videoEndpoint?.Dispose();
+        videoBridge?.Dispose();
 
         disposed = true;
     }

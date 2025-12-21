@@ -15,7 +15,7 @@ public static partial class NDILib
         public float picture_aspect_ratio;
         public frame_format_type_e frame_format_type;
         public long timecode;
-        public byte* p_data;
+        public IntPtr p_data;
         public int line_stride_in_bytes;
 
         [MarshalAs(UnmanagedType.LPUTF8Str)]

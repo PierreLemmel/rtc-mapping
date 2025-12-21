@@ -10,6 +10,12 @@ public static class LoggingUtils
         logger.Log(LogLevel.Information, new EventId(0), fullMsg, null, (state, exception) => state.ToString());
     }
 
+    public static void Warn(this ILogger logger, string category, string message)
+    {
+        string fullMsg = $"[{category.ToUpper()}] {message}";
+        logger.Log(LogLevel.Warning, new EventId(0), fullMsg, null, (state, exception) => state.ToString());
+    }
+
     public static void Error(this ILogger logger, string category, string message)
     {
         string fullMsg = $"[{category.ToUpper()}] {message}";

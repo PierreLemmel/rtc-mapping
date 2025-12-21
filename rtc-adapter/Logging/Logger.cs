@@ -19,6 +19,12 @@ public class Logger : ILogger
         {
             Console.Error.WriteLine(message);
         }
+        else if (logLevel >= LogLevel.Warning)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine(message);
+            Console.ResetColor();
+        }
         else
         {
             Console.WriteLine(message);
