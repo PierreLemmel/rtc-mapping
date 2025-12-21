@@ -178,10 +178,11 @@ public class SignalingServer : ISignalingServer
         }
 
         logger.Log("RTC", $"Received SDP answer from client {clientId}");
-        await BroadcastMessageAsync("SdpAnswer", answer);
+        
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "SdpAnswer", answer);
     }
 
-    private async Task HandleSdpOfferMessageAsync(string offer, string clientId)
+    private async Task HandleSdpOfferMessageAsync(string data, string clientId)
     {
         if (clientId != RTC_ADAPTER_CLIENT_ID)
         {
@@ -189,8 +190,23 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
-        logger.Log("RTC", "SDP offer received from adapter");
-        await BroadcastMessageAsync("SdpOffer", offer, excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
+        SdpOfferMessageReceived? msg = JsonSerializer.Deserialize<SdpOfferMessageReceived>(data);
+
+        if (msg is null)
+        {
+            logger.Error("RTC", "Failed to deserialize SdpOfferMessageReceived");
+            return;
+        }
+
+        logger.Log("RTC", $"SDP offer received from adapter for client {msg.targetId}");
+        
+        if (!clients.ContainsKey(msg.targetId))
+        {
+            logger.Error("RTC", $"Client {msg.targetId} not found");
+            return;
+        }
+
+        await SendMessageAsync(msg.targetId, "SdpOffer", msg.sdpOffer);
     }
 
 
