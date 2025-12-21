@@ -41,16 +41,35 @@ public class SignalingServer : ISignalingServer
 
         while (true)
         {
-            var context = await _listener.GetContextAsync();
-
-            if (context.Request.IsWebSocketRequest && context.Request.Url!.AbsolutePath == "/ws")
+            HttpListenerContext? context = null;
+            try
             {
-                _ = HandleWebSocketAsync(context);
+                context = await _listener.GetContextAsync();
+
+                if (context.Request.IsWebSocketRequest && context.Request.Url!.AbsolutePath == "/ws")
+                {
+                    _ = HandleWebSocketAsync(context);
+                }
+                else
+                {
+                    _ = HandleHttpRequestAsync(context);
+                }
             }
-            // else
-            // {
-                // _ = HandleHttpRequestAsync(context);
-            // }
+            catch (Exception ex)
+            {
+                logger.Error("SERVER", $"Error accepting connection: {ex.Message}");
+                if (context != null)
+                {
+                    try
+                    {
+                        context.Response.StatusCode = 500;
+                        context.Response.Close();
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
         }
     }
 
@@ -150,17 +169,17 @@ public class SignalingServer : ISignalingServer
 
     private void HandleLogMessage(string message, string clientId) => logger.Log("WS", $"Log from '{clientId}': {message}");
 
-    // private HashSet<string> waitingRoom = new();
+    private HashSet<string> waitingRoom = new();
     private async Task HandleWaitingRoomMessageAsync(string data, string clientId)
     {
-        // waitingRoom.Add(clientId);
+        waitingRoom.Add(clientId);
         logger.Log("WS", $"Client {clientId} added to waiting room");
         await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "ClientAwaiting", clientId);
     }
 
     private void HandleClientConnectedMessage(string data, string clientId)
     {
-        // waitingRoom.Remove(clientId);
+        waitingRoom.Remove(clientId);
         logger.Log("WS", $"Client {clientId} connected and removed from waiting room");
     }
 
@@ -325,7 +344,7 @@ public class SignalingServer : ISignalingServer
     {
         response.ContentType = "application/json";
         response.StatusCode = 200;
-        // await WriteJsonResponseAsync(response, new { clients = waitingRoom.ToArray() });
+        await WriteJsonResponseAsync(response, new { clients = waitingRoom.ToArray() });
     }
 
     private async Task WriteJsonResponseAsync(HttpListenerResponse response, object data)
