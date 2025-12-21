@@ -219,7 +219,21 @@ public class SignalingServer : ISignalingServer
         var tasks = (excludeClientIds is null ? clients : clients.Where(c => !excludeClientIds.Contains(c.Key)))
         .Select(async c => 
         {
-            await c.Value.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            var ws = c.Value;
+            if (ws.State != WebSocketState.Open)
+            {
+                logger.Error("WS", $"Client {c.Key} is not open");
+                return;
+            }
+
+            try
+            {
+                await c.Value.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.Error("WS", $"Failed to send message to client {c.Key}: {ex.Message}");
+            }
         });
         
         await Task.WhenAll(tasks);
