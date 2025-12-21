@@ -52,7 +52,11 @@ public class SignalingServer : ISignalingServer
                 }
                 else
                 {
-                    await HandleHttpRequestAsync(context);
+                    context.Response.StatusCode = 200;
+                await using var writer = new StreamWriter(context.Response.OutputStream);
+                await writer.WriteAsync("Signaling Server.\n");
+                context.Response.Close();
+                    // await HandleHttpRequestAsync(context);
                 }
             }
             catch (Exception ex)
