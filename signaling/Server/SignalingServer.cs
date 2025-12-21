@@ -14,7 +14,6 @@ public class SignalingServer : ISignalingServer
     private readonly HttpListener _listener;
     private readonly ConcurrentDictionary<string, WebSocket> clients = new();
 
-    private string? sdpOffer;
     private readonly ILogger logger;
 
     public SignalingServer(int port, ILogger logger)
@@ -139,6 +138,12 @@ public class SignalingServer : ISignalingServer
             case "SdpOffer":
                 await HandleSdpOfferMessageAsync(data, clientId);
                 break;
+            case "WaitingRoom":
+                await HandleWaitingRoomMessageAsync(data, clientId);
+                break;
+            case "ClientReady":
+                await HandleClientReadyMessageAsync(data, clientId);
+                break;
             default:
                 logger.Error("WS", $"Unknown message type: {type} from client {clientId}");
                 break;
@@ -147,6 +152,23 @@ public class SignalingServer : ISignalingServer
 
     private void HandleLogMessage(string message, string clientId) => logger.Log("WS", $"Log from '{clientId}': {message}");
 
+    private readonly ConcurrentBag<string> waitingRoom = new();
+    private async Task HandleWaitingRoomMessageAsync(string data, string clientId)
+    {
+        waitingRoom.Add(clientId);
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "WaitingRoom", clientId);
+    }
+
+    private async Task HandleClientReadyMessageAsync(string data, string clientId)
+    {
+        if (clientId != RTC_ADAPTER_CLIENT_ID)
+        {
+            logger.Error("RTC", "Only the RTC adapter can send client ready messages");
+            return;
+        }
+        await BroadcastMessageAsync("ClientReady", clientId, excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
+    }
+    
     private async Task HandleSdpAnswerMessageAsync(string answer, string clientId)
     {
         if (clientId == RTC_ADAPTER_CLIENT_ID)
@@ -167,10 +189,11 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
-        sdpOffer = offer;
         logger.Log("RTC", "SDP offer received from adapter");
-        await BroadcastMessageAsync("SdpOffer", sdpOffer);
+        await BroadcastMessageAsync("SdpOffer", offer, excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
     }
+
+
     private async Task SendMessageAsync(string clientId, string type, string data)
     {
         if (!clients.TryGetValue(clientId, out var ws))
@@ -199,13 +222,14 @@ public class SignalingServer : ISignalingServer
         }
     }
 
-    private async Task BroadcastMessageAsync(string type, string data)
+    private async Task BroadcastMessageAsync(string type, string data, string[]? excludeClientIds = null)
     {
         var msg = new OutgoingMessage(type, data, DateTime.UtcNow);
         string json = JsonSerializer.Serialize(msg);
         byte[] bytes = Encoding.UTF8.GetBytes(json);
 
-        var tasks = clients.Select(async c => 
+        var tasks = (excludeClientIds is null ? clients : clients.Where(c => !excludeClientIds.Contains(c.Key)))
+        .Select(async c => 
         {
             var ws = c.Value;
             if (ws.State != WebSocketState.Open)
@@ -227,20 +251,23 @@ public class SignalingServer : ISignalingServer
         await Task.WhenAll(tasks);
     }
 
-    private async Task BroadcastMessageAsync<TData>(string type, TData data)
+    private async Task BroadcastMessageAsync<TData>(string type, TData data, string[]? excludeClientIds = null)
     {
         string payload = JsonSerializer.Serialize(data);
-        await BroadcastMessageAsync(type, payload);
+        await BroadcastMessageAsync(type, payload, excludeClientIds);
     }
 
     private async Task OnClientAddedAsync(string clientId)
     {
-        await BroadcastMessageAsync("ClientAdded", new ClientAddedMessage(clientId, clients.Count));
-        if (sdpOffer is not null)
+        if (clientId != RTC_ADAPTER_CLIENT_ID)
         {
-            if (clientId != "rtc-adapter")
+            await BroadcastMessageAsync("ClientAdded", new ClientAddedMessage(clientId, clients.Count), excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
+        }
+        else
+        {
+            foreach (string client in waitingRoom)
             {
-                await SendMessageAsync(clientId, "SdpOffer", sdpOffer);
+                await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "ClientAwaiting", client);
             }
         }
     }
