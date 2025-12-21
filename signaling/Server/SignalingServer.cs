@@ -49,7 +49,7 @@ public class SignalingServer : ISignalingServer
             }
             else
             {
-                _ = HandleHttpRequestAsync(context);
+                // _ = HandleHttpRequestAsync(context);
             }
         }
     }
