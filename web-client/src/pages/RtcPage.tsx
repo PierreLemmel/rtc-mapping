@@ -61,6 +61,14 @@ const RtcPage = () => {
     }, [setOffer])
     const { clientId, sendMessage } = useWs(onMessage)
 
+    const initialMessageSentRef = useRef(false);
+    useEffect(() => {
+        if (sendMessage && clientId && !initialMessageSentRef.current) {
+            initialMessageSentRef.current = true;
+            sendMessage({ type: 'WaitingRoom', data: clientId })
+        }
+    }, [clientId, sendMessage])
+
     useEffect(() => {
         if (sdpAnswer && sendMessage && tracksInitialized) {
             sendMessage({ type: 'SdpAnswer', data: sdpAnswer })

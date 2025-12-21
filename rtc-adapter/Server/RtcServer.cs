@@ -114,6 +114,10 @@ public class RtcServer: IRtcServer
                 HandleSdpAnswerMessage(data);
                 break;
             
+            case "ClientAwaiting":
+                HandleClientAwaitingMessage(data);
+                break;
+
             case "ClientAdded":
                 HandleClientAddedMessage(data);
                 break;
@@ -124,6 +128,16 @@ public class RtcServer: IRtcServer
                 logger.Log("WS", $"Unknown message type: {type}");
                 break;
         }
+    }
+
+    private void HandleClientAwaitingMessage(string data)
+    {
+        string clientId = data;
+        logger.Log("RTC", $"Client {clientId} is awaiting");
+
+        string connectionId = clientId;
+        RtcServerConnection connection = CreateNewConnection(connectionId);
+        connections.Add(connectionId, connection);
     }
 
     private void HandleClientAddedMessage(string data)
@@ -137,10 +151,6 @@ public class RtcServer: IRtcServer
         }
 
         logger.Log("RTC", $"Client {clientAddedMessage.id} added");
-
-        string connectionId = clientAddedMessage.id;
-        RtcServerConnection connection = CreateNewConnection(connectionId);
-        connections.Add(connectionId, connection);
     }
 
     private void HandleSdpAnswerMessage(string sdp)

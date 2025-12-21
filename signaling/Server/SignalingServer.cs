@@ -156,7 +156,7 @@ public class SignalingServer : ISignalingServer
     {
         waitingRoom.Add(clientId);
         logger.Log("WS", $"Client {clientId} added to waiting room");
-        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "WaitingRoom", clientId);
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "ClientAwaiting", clientId);
     }
 
     private void HandleClientConnectedMessage(string data, string clientId)
