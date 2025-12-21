@@ -52,7 +52,7 @@ public class SignalingServer : ISignalingServer
                 }
                 else
                 {
-                    _ = HandleHttpRequestAsync(context);
+                    await HandleHttpRequestAsync(context);
                 }
             }
             catch (Exception ex)
@@ -75,66 +75,100 @@ public class SignalingServer : ISignalingServer
 
     private async Task HandleWebSocketAsync(HttpListenerContext context)
     {
-        var webSocketContext = await context.AcceptWebSocketAsync(subProtocol: null);
-        var ws = webSocketContext.WebSocket;
-
-        string? clientId = context.Request.QueryString.Get("clientId");
-        if (clientId is null)
+        WebSocket? ws = null;
+        string? clientId = null;
+        try
         {
-            logger.Error("WS", "Client ID is required");
-            await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Client ID is required", CancellationToken.None);
-            return;
-        }
+            var webSocketContext = await context.AcceptWebSocketAsync(subProtocol: null);
+            ws = webSocketContext.WebSocket;
 
-        if (!clients.TryAdd(clientId, ws))
-        {
-            logger.Error("WS", $"Client ID {clientId} already exists");
-            await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Client ID already exists", CancellationToken.None);
-            return;
-        }
+            clientId = context.Request.QueryString.Get("clientId");
+            if (clientId is null)
+            {
+                logger.Error("WS", "Client ID is required");
+                await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Client ID is required", CancellationToken.None);
+                return;
+            }
 
-        logger.Log("WS", $"Client {clientId} connected");
+            if (!clients.TryAdd(clientId, ws))
+            {
+                logger.Error("WS", $"Client ID {clientId} already exists");
+                await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Client ID already exists", CancellationToken.None);
+                return;
+            }
 
-        await Task.Delay(100);
-        await OnClientAddedAsync(clientId);
+            logger.Log("WS", $"Client {clientId} connected");
 
-        var buffer = new byte[16384];
-        while (ws.State == WebSocketState.Open)
-        {
-            try {
-                WebSocketReceiveResult message = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                
-                if (message.MessageType == WebSocketMessageType.Close)
+            await Task.Delay(100);
+            await OnClientAddedAsync(clientId);
+
+            var buffer = new byte[16384];
+            while (ws.State == WebSocketState.Open)
+            {
+                try
                 {
-                    logger.Log("WS", $"Client {clientId} requested close.");
-                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Bye", CancellationToken.None);
+                    WebSocketReceiveResult message = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                    
+                    if (message.MessageType == WebSocketMessageType.Close)
+                    {
+                        logger.Log("WS", $"Client {clientId} requested close.");
+                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Bye", CancellationToken.None);
+                        break;
+                    }
+
+                    string json = Encoding.UTF8.GetString(buffer, 0, message.Count);
+
+                    IncomingMessage? msg = JsonSerializer.Deserialize<IncomingMessage>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    if (msg is null)
+                    {
+                        logger.Error("WS", $"Failed to deserialize message: {json}");
+                        continue;
+                    }
+                    await HandleMessageAsync(msg, ws);
+                }
+                catch (WebSocketException ex)
+                {
+                    logger.Error("WS", $"WebSocket error for client {clientId}: {ex.Message}");
                     break;
                 }
-
-                string json = Encoding.UTF8.GetString(buffer, 0, message.Count);
-
-                IncomingMessage? msg = JsonSerializer.Deserialize<IncomingMessage>(json, new JsonSerializerOptions
+                catch (Exception ex)
                 {
-                    PropertyNameCaseInsensitive = true
-                });
-
-                if (msg is null)
-                {
-                    logger.Error("WS", $"Failed to deserialize message: {json}");
-                    continue;
+                    logger.Error("WS", $"Failed to receive message from client {clientId}: {ex.Message}");
+                    break;
                 }
-                await HandleMessageAsync(msg, ws);
-            }
-            catch (Exception ex)
-            {
-                logger.Error("WS", $"Failed to receive message: {ex.Message}");
-                continue;
             }
         }
-
-        clients.TryRemove(clientId, out _);
-        logger.Log("WS", $"Client {clientId} disconnected");
-        ws.Dispose();
+        catch (Exception ex)
+        {
+            logger.Error("WS", $"Error handling WebSocket connection: {ex.Message}");
+        }
+        finally
+        {
+            if (clientId != null)
+            {
+                clients.TryRemove(clientId, out _);
+                waitingRoom.TryRemove(clientId, out _);
+                logger.Log("WS", $"Client {clientId} disconnected");
+            }
+            if (ws != null)
+            {
+                try
+                {
+                    if (ws.State == WebSocketState.Open || ws.State == WebSocketState.CloseReceived)
+                    {
+                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server closing", CancellationToken.None);
+                    }
+                }
+                catch
+                {
+                }
+                ws.Dispose();
+            }
+        }
     }
 
 
@@ -169,17 +203,17 @@ public class SignalingServer : ISignalingServer
 
     private void HandleLogMessage(string message, string clientId) => logger.Log("WS", $"Log from '{clientId}': {message}");
 
-    private HashSet<string> waitingRoom = new();
+    private readonly ConcurrentDictionary<string, bool> waitingRoom = new();
     private async Task HandleWaitingRoomMessageAsync(string data, string clientId)
     {
-        waitingRoom.Add(clientId);
+        waitingRoom.TryAdd(clientId, true);
         logger.Log("WS", $"Client {clientId} added to waiting room");
         await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "ClientAwaiting", clientId);
     }
 
     private void HandleClientConnectedMessage(string data, string clientId)
     {
-        waitingRoom.Remove(clientId);
+        waitingRoom.TryRemove(clientId, out _);
         logger.Log("WS", $"Client {clientId} connected and removed from waiting room");
     }
 
@@ -344,7 +378,7 @@ public class SignalingServer : ISignalingServer
     {
         response.ContentType = "application/json";
         response.StatusCode = 200;
-        await WriteJsonResponseAsync(response, new { clients = waitingRoom.ToArray() });
+        await WriteJsonResponseAsync(response, new { clients = waitingRoom.Keys.ToArray() });
     }
 
     private async Task WriteJsonResponseAsync(HttpListenerResponse response, object data)
