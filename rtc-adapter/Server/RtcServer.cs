@@ -45,7 +45,8 @@ public class RtcServer: IRtcServer
     private async Task OnSdpOffer(string connectionId, string sdpOffer)
     {
         logger.Log("RTC", "Sending SDP offer");
-        await SendMessageAsync("SdpOffer", sdpOffer);
+        SdpOfferReadyMessage message = new(sdpOffer, connectionId);
+        await SendMessageAsync("SdpOffer", message);
     }
 
     public async Task Start()
@@ -170,5 +171,11 @@ public class RtcServer: IRtcServer
         byte[] bytes = Encoding.UTF8.GetBytes(json);
 
         await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+    }
+
+    private async Task SendMessageAsync<TData>(string type, TData data)
+    {
+        string json = JsonSerializer.Serialize(data);
+        await SendMessageAsync(type, json);
     }
 }

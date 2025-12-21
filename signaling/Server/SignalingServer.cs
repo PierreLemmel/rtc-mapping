@@ -129,19 +129,19 @@ public class SignalingServer : ISignalingServer
         
         switch (type)
         {
-            case "Log":
+            case MessageTypes.Log:
                 HandleLogMessage(data, clientId);
                 break;
-            case "SdpAnswer":
+            case MessageTypes.SdpAnswer:
                 await HandleSdpAnswerMessageAsync(data, clientId);
                 break;
-            case "SdpOffer":
+            case MessageTypes.SdpOffer:
                 await HandleSdpOfferMessageAsync(data, clientId);
                 break;
-            case "WaitingRoom":
+            case MessageTypes.WaitingRoom:
                 await HandleWaitingRoomMessageAsync(data, clientId);
                 break;
-            case "ClientReady":
+            case MessageTypes.ClientReady:
                 await HandleClientReadyMessageAsync(data, clientId);
                 break;
             default:
@@ -156,7 +156,7 @@ public class SignalingServer : ISignalingServer
     private async Task HandleWaitingRoomMessageAsync(string data, string clientId)
     {
         waitingRoom.Add(clientId);
-        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "WaitingRoom", clientId);
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.ClientAwaiting, clientId);
     }
 
     private async Task HandleClientReadyMessageAsync(string data, string clientId)
@@ -166,7 +166,7 @@ public class SignalingServer : ISignalingServer
             logger.Error("RTC", "Only the RTC adapter can send client ready messages");
             return;
         }
-        await BroadcastMessageAsync("ClientReady", clientId, excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
+        await BroadcastMessageAsync(MessageTypes.ClientReady, clientId, excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
     }
     
     private async Task HandleSdpAnswerMessageAsync(string answer, string clientId)
@@ -179,7 +179,7 @@ public class SignalingServer : ISignalingServer
 
         logger.Log("RTC", $"Received SDP answer from client {clientId}");
         
-        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "SdpAnswer", answer);
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.SdpAnswer, answer);
     }
 
     private async Task HandleSdpOfferMessageAsync(string data, string clientId)
@@ -206,7 +206,7 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
-        await SendMessageAsync(msg.targetId, "SdpOffer", msg.sdpOffer);
+        await SendMessageAsync(msg.targetId, MessageTypes.SdpOffer, msg.sdpOffer);
     }
 
 
@@ -277,13 +277,13 @@ public class SignalingServer : ISignalingServer
     {
         if (clientId != RTC_ADAPTER_CLIENT_ID)
         {
-            await BroadcastMessageAsync("ClientAdded", new ClientAddedMessage(clientId, clients.Count), excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
+            await BroadcastMessageAsync(MessageTypes.ClientAdded, new ClientAddedMessage(clientId, clients.Count), excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
         }
         else
         {
             foreach (string client in waitingRoom)
             {
-                await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "ClientAwaiting", client);
+                await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.ClientAwaiting, client);
             }
         }
     }
