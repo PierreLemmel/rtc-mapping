@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Concurrent;
+using System.Linq;
 
 namespace Plml.Signaling;
 
@@ -49,10 +50,7 @@ public class SignalingServer : ISignalingServer
             }
             else
             {
-                context.Response.StatusCode = 200;
-                await using var writer = new StreamWriter(context.Response.OutputStream);
-                await writer.WriteAsync("Signaling Server.\n");
-                context.Response.Close();
+                _ = HandleHttpRequestAsync(context);
             }
         }
     }
@@ -133,6 +131,12 @@ public class SignalingServer : ISignalingServer
             case "Log":
                 HandleLogMessage(data, clientId);
                 break;
+            case "WaitingRoom":
+                HandleWaitingRoomMessage(data, clientId);
+                break;
+            case "ClientConnected":
+                HandleClientConnectedMessage(data, clientId);
+                break;  
             case "SdpAnswer":
                 await HandleSdpAnswerMessageAsync(data, clientId);
                 break;
@@ -146,6 +150,19 @@ public class SignalingServer : ISignalingServer
     }
 
     private void HandleLogMessage(string message, string clientId) => logger.Log("WS", $"Log from '{clientId}': {message}");
+
+    private HashSet<string> waitingRoom = new();
+    private void HandleWaitingRoomMessage(string data, string clientId)
+    {
+        waitingRoom.Add(clientId);
+        logger.Log("WS", $"Client {clientId} added to waiting room");
+    }
+
+    private void HandleClientConnectedMessage(string data, string clientId)
+    {
+        waitingRoom.Remove(clientId);
+        logger.Log("WS", $"Client {clientId} connected and removed from waiting room");
+    }
 
     private async Task HandleSdpAnswerMessageAsync(string answer, string clientId)
     {
@@ -243,5 +260,94 @@ public class SignalingServer : ISignalingServer
                 await SendMessageAsync(clientId, "SdpOffer", sdpOffer);
             }
         }
+    }
+
+    private async Task HandleHttpRequestAsync(HttpListenerContext context)
+    {
+        var request = context.Request;
+        var response = context.Response;
+        var path = request.Url!.AbsolutePath;
+
+        try
+        {
+            if (path == "/" || path == "/health")
+            {
+                await HandleHealthEndpointAsync(response);
+            }
+            else if (path.StartsWith("/api/"))
+            {
+                await HandleApiRequestAsync(request, response, path);
+            }
+            else
+            {
+                response.StatusCode = 404;
+                await WriteJsonResponseAsync(response, new { error = "Not Found" });
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Error("HTTP", $"Error handling HTTP request: {ex.Message}");
+            response.StatusCode = 500;
+            await WriteJsonResponseAsync(response, new { error = "Internal Server Error" });
+        }
+        finally
+        {
+            response.Close();
+        }
+    }
+
+    private async Task HandleApiRequestAsync(HttpListenerRequest request, HttpListenerResponse response, string path)
+    {
+        response.ContentType = "application/json";
+        response.AddHeader("Access-Control-Allow-Origin", "*");
+        response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        response.AddHeader("Access-Control-Allow-Headers", "Content-Type");
+
+        if (request.HttpMethod == "OPTIONS")
+        {
+            response.StatusCode = 200;
+            return;
+        }
+
+        switch (path)
+        {
+            case "/api/waiting-room":
+                await HandleWaitingRoomEndpointAsync(response);
+                break;
+            default:
+                response.StatusCode = 404;
+                await WriteJsonResponseAsync(response, new { error = "Endpoint not found" });
+                break;
+        }
+    }
+
+    private async Task HandleHealthEndpointAsync(HttpListenerResponse response)
+    {
+        response.ContentType = "application/json";
+        response.StatusCode = 200;
+        await WriteJsonResponseAsync(response, new
+        {
+            status = "ok",
+            service = "Signaling Server",
+            timestamp = DateTime.UtcNow
+        });
+    }
+
+    private async Task HandleWaitingRoomEndpointAsync(HttpListenerResponse response)
+    {
+        response.ContentType = "application/json";
+        response.StatusCode = 200;
+        await WriteJsonResponseAsync(response, new { clients = waitingRoom.ToArray() });
+    }
+
+    private async Task WriteJsonResponseAsync(HttpListenerResponse response, object data)
+    {
+        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+        var bytes = Encoding.UTF8.GetBytes(json);
+        response.ContentLength64 = bytes.Length;
+        await response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
     }
 }
