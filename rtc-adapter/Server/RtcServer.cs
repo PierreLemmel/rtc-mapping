@@ -121,8 +121,6 @@ public class RtcServer: IRtcServer
             case "ClientAdded":
                 HandleClientAddedMessage(data);
                 break;
-            case "SdpOffer":
-                break;
 
             default:
                 logger.Log("WS", $"Unknown message type: {type}");

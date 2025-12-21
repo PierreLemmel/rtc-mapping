@@ -15,7 +15,6 @@ public class SignalingServer : ISignalingServer
     private readonly HttpListener _listener;
     private readonly ConcurrentDictionary<string, WebSocket> clients = new();
 
-    private string? sdpOffer;
     private readonly ILogger logger;
 
     public SignalingServer(int port, ILogger logger)
@@ -167,14 +166,8 @@ public class SignalingServer : ISignalingServer
 
     private async Task HandleSdpAnswerMessageAsync(string answer, string clientId)
     {
-        if (clientId == RTC_ADAPTER_CLIENT_ID)
-        {
-            logger.Error("RTC", "Received SDP answer from RTC adapter");
-            return;
-        }
-
         logger.Log("RTC", $"Received SDP answer from client {clientId}");
-        await BroadcastMessageAsync("SdpAnswer", answer);
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "SdpAnswer", answer);
     }
 
     private async Task HandleSdpOfferMessageAsync(string offer, string clientId)
@@ -185,9 +178,8 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
-        sdpOffer = offer;
         logger.Log("RTC", "SDP offer received from adapter");
-        await BroadcastMessageAsync("SdpOffer", sdpOffer);
+        await BroadcastMessageAsync("SdpOffer", offer, excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
     }
     private async Task SendMessageAsync(string clientId, string type, string data)
     {
@@ -217,29 +209,17 @@ public class SignalingServer : ISignalingServer
         }
     }
 
-    private async Task BroadcastMessageAsync(string type, string data)
+    private async Task BroadcastMessageAsync(string type, string data, string[]? excludeClientIds = null)
     {
         var msg = new OutgoingMessage(type, data, DateTime.UtcNow);
         string json = JsonSerializer.Serialize(msg);
         byte[] bytes = Encoding.UTF8.GetBytes(json);
 
-        var tasks = clients.Select(async c => 
-        {
-            var ws = c.Value;
-            if (ws.State != WebSocketState.Open)
-            {
-                logger.Error("WS", $"Client {c.Key} is not open");
-                return;
-            }
 
-            try
-            {
-                await c.Value.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                logger.Error("WS", $"Failed to send message to client {c.Key}: {ex.Message}");
-            }
+        var tasks = (excludeClientIds is null ? clients : clients.Where(c => !excludeClientIds.Contains(c.Key)))
+        .Select(async c => 
+        {
+            await c.Value.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
         });
         
         await Task.WhenAll(tasks);
@@ -254,13 +234,6 @@ public class SignalingServer : ISignalingServer
     private async Task OnClientAddedAsync(string clientId)
     {
         await BroadcastMessageAsync("ClientAdded", new ClientAddedMessage(clientId, clients.Count));
-        if (sdpOffer is not null)
-        {
-            if (clientId != RTC_ADAPTER_CLIENT_ID)
-            {
-                await SendMessageAsync(clientId, "SdpOffer", sdpOffer);
-            }
-        }
     }
 
     private async Task HandleHttpRequestAsync(HttpListenerContext context)
