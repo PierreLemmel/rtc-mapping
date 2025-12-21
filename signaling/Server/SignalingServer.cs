@@ -132,7 +132,7 @@ public class SignalingServer : ISignalingServer
                 HandleLogMessage(data, clientId);
                 break;
             case "WaitingRoom":
-                HandleWaitingRoomMessage(data, clientId);
+                await HandleWaitingRoomMessageAsync(data, clientId);
                 break;
             case "ClientConnected":
                 HandleClientConnectedMessage(data, clientId);
@@ -152,10 +152,11 @@ public class SignalingServer : ISignalingServer
     private void HandleLogMessage(string message, string clientId) => logger.Log("WS", $"Log from '{clientId}': {message}");
 
     private HashSet<string> waitingRoom = new();
-    private void HandleWaitingRoomMessage(string data, string clientId)
+    private async Task HandleWaitingRoomMessageAsync(string data, string clientId)
     {
         waitingRoom.Add(clientId);
         logger.Log("WS", $"Client {clientId} added to waiting room");
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, "WaitingRoom", clientId);
     }
 
     private void HandleClientConnectedMessage(string data, string clientId)
@@ -255,7 +256,7 @@ public class SignalingServer : ISignalingServer
         await BroadcastMessageAsync("ClientAdded", new ClientAddedMessage(clientId, clients.Count));
         if (sdpOffer is not null)
         {
-            if (clientId != "rtc-adapter")
+            if (clientId != RTC_ADAPTER_CLIENT_ID)
             {
                 await SendMessageAsync(clientId, "SdpOffer", sdpOffer);
             }
