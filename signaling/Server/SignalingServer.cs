@@ -179,7 +179,8 @@ public class SignalingServer : ISignalingServer
 
         logger.Log("RTC", $"Received SDP answer from client {clientId}");
         
-        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.SdpAnswer, answer);
+        SdpAnswerMessageReceived message = new(answer, clientId);
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.SdpAnswer, message);
     }
 
     private async Task HandleSdpOfferMessageAsync(string data, string clientId)
@@ -236,6 +237,12 @@ public class SignalingServer : ISignalingServer
         {
             logger.Error("WS", $"Failed to send message to client {clientId}: {ex.Message}");
         }
+    }
+
+    private async Task SendMessageAsync<TData>(string clientId, string type, TData data)
+    {
+        string payload = JsonSerializer.Serialize(data);
+        await SendMessageAsync(clientId, type, payload);
     }
 
     private async Task BroadcastMessageAsync(string type, string data, string[]? excludeClientIds = null)

@@ -6,6 +6,7 @@ public record IncomingMessage(string type, string data, string clientId);
 public record OutgoingMessage(string type, string data, DateTime timestamp);
 
 public record SdpOfferMessageReceived(string sdpOffer, string targetId);
+public record SdpAnswerMessageReceived(string sdpAnswer, string sourceId);
 public record ClientAddedMessage(string id, int count);
 
 public static class MessageTypes

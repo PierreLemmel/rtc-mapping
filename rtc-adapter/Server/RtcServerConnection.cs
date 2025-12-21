@@ -127,7 +127,7 @@ public class RtcServerConnection : IDisposable
         }
         catch (Exception ex)
         {
-            logger.Error("SINC", $"Error handling video frame: {ex.Message}");
+            logger.Error("SINC", connectionId, $"Error handling video frame: {ex.Message}");
         }
     }
 
@@ -164,50 +164,50 @@ public class RtcServerConnection : IDisposable
 
     private async void OnConnectionStateChange(RTCPeerConnectionState state)
     {
-        logger.Log("RTC", $"Connection state changed: {state.ToString().ToUpper()}");
+        logger.Log("RTC", connectionId, $"Connection state changed: {state.ToString().ToUpper()}");
         switch (state)
         {
             case RTCPeerConnectionState.closed:
-                logger.Log("RTC", "Connection closed");
+                logger.Log("RTC", connectionId, "Connection closed");
                 await ResetPeerConnection();
-                logger.Log("RTC", "Peer connection reset, ready to go");
+                logger.Log("RTC", connectionId, "Peer connection reset, ready to go");
                 break;
             case RTCPeerConnectionState.connected:
-                logger.Log("RTC", "Connection established");
+                logger.Log("RTC", connectionId, "Connection established");
                 OnRTCConnected?.Invoke(connectionId);
 
                 break;
             case RTCPeerConnectionState.failed:
-                logger.Error("RTC", "Connection failed");
+                logger.Error("RTC", connectionId, "Connection failed");
                 await ResetPeerConnection();
-                logger.Log("RTC", "Peer connection reset");
+                logger.Log("RTC", connectionId, "Peer connection reset");
                 break;
         }
     }
 
-    private void OnDataChannel(RTCDataChannel channel) => logger.Log("RTC", $"Data channel opened: {channel.label}");
+    private void OnDataChannel(RTCDataChannel channel) => logger.Log("RTC", connectionId, $"Data channel opened: {channel.label}");
 
-    private void OnVideoFormatsNegotiated(List<VideoFormat> formats) => logger.Log("RTC", $"Video formats negotiated: {string.Join(", ", formats.Select(f => f.Codec.ToString()))}");
+    private void OnVideoFormatsNegotiated(List<VideoFormat> formats) => logger.Log("RTC", connectionId, $"Video formats negotiated: {string.Join(", ", formats.Select(f => f.Codec.ToString()))}");
 
-    private void OnAudioFormatsNegotiated(List<AudioFormat> formats) => logger.Log("RTC", $"Audio formats negotiated: {formats.Count}");
+    private void OnAudioFormatsNegotiated(List<AudioFormat> formats) => logger.Log("RTC", connectionId, $"Audio formats negotiated: {formats.Count}");
 
     private void OnVideoFrameReceived(IPEndPoint remoteEP, uint timestamp, byte[] frame, VideoFormat format) => HandleVideoFrame(remoteEP, timestamp, frame, format);
 
-    private void OnAudioFrameReceived(EncodedAudioFrame frame) => logger.Log("RTC", $"Audio frame received: {frame.DurationMilliSeconds}");
+    private void OnAudioFrameReceived(EncodedAudioFrame frame) => logger.Log("RTC", connectionId, $"Audio frame received: {frame.DurationMilliSeconds}");
 
     private void OnSignalingStateChange()
     {
         RTCSignalingState state = pc.signalingState;
-        logger.Log("RTC", $"Signaling state changed: {state.ToString().ToUpper()}");
+        logger.Log("RTC", connectionId, $"Signaling state changed: {state.ToString().ToUpper()}");
         switch (state)
         {
             case RTCSignalingState.have_local_offer:
                 if (!UpdateSdpOffer())
                 {
-                    logger.Error("RTC", "Failed to update SDP offer");
+                    logger.Error("RTC", connectionId, "Failed to update SDP offer");
                     return;
                 }
-                logger.Log("RTC", "SDP offer created");
+                logger.Log("RTC", connectionId, "SDP offer created");
                 SendSdpOffer();
                 break;
 
@@ -220,13 +220,13 @@ public class RtcServerConnection : IDisposable
     {
         if (pc.localDescription is null)
         {
-            logger.Error("RTC", "Peer connection has no local description, cannot send SDP offer");
+            logger.Error("RTC", connectionId, "Peer connection has no local description, cannot send SDP offer");
             return false;
         }
 
         if (pc.localDescription.type != RTCSdpType.offer)
         {
-            logger.Error("RTC", "Local description is not an offer");
+            logger.Error("RTC", connectionId, "Local description is not an offer");
             return false;
         }
 
@@ -238,7 +238,7 @@ public class RtcServerConnection : IDisposable
     {
         if (sdpOffer is null)
         {
-            logger.Error("RTC", "No SDP offer to send");
+            logger.Error("RTC", connectionId, "No SDP offer to send");
             return;
         }
 
@@ -254,10 +254,10 @@ public class RtcServerConnection : IDisposable
         SetDescriptionResultEnum result = pc.SetRemoteDescription(SdpType.answer, remoteDescription);
         if (result != SetDescriptionResultEnum.OK)
         {
-            logger.Error("RTC", $"Failed to set remote description: {result}");
+            logger.Error("RTC", connectionId, $"Failed to set remote description: {result}");
             return;
         }
-        logger.Log("RTC", "Remote description set");
+        logger.Log("RTC", connectionId, "Remote description set");
     }
 
     public void Dispose()

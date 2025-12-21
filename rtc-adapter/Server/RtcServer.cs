@@ -149,12 +149,22 @@ public class RtcServer: IRtcServer
             return;
         }
 
-        logger.Log("RTC", $"Client {clientAddedMessage.id} added");
+        logger.Log("RTC", clientAddedMessage.id, "Client added");
     }
 
-    private void HandleSdpAnswerMessage(string sdp)
+    private void HandleSdpAnswerMessage(string data)
     {
-        logger.Log("RTC", "Received SDP Answer");
+        SdpAnswerReceivedMessage? message = JsonSerializer.Deserialize<SdpAnswerReceivedMessage>(data);
+        if (message is null)
+        {
+            logger.Error("RTC", "Failed to deserialize SdpAnswerReceivedMessage");
+            return;
+        }
+
+        string sdp = message.sdpAnswer;
+        string sourceId = message.sourceId;
+
+        logger.Log("RTC", sourceId, "Received SDP Answer");
         foreach (var kvp in connections)
         {
             var connection = kvp.Value;
