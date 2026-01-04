@@ -20,13 +20,13 @@ const getNextDuration = (attempts: number) => {
     }
 }
 
-const getWsUrl = () => {
+const getWsUrl = (clientId: string, userName: string) => {
     const { wsUrl } = getSettings();
-    const url = `${ wsUrl }?clientId=${clientId}`
+    const url = `${ wsUrl }?clientId=${encodeURIComponent(clientId)}&userName=${encodeURIComponent(userName)}`
     return url;
 }
 
-export const useWs = (onMessage: (message: IncomingMessage) => void) => {
+export const useWs = (userName: string | null, onMessage: (message: IncomingMessage) => void) => {
 
     const [ws, setWs] = useState<WebSocket|null>(null);
     const socketRef = useRef<WebSocket | null>(null);
@@ -35,6 +35,8 @@ export const useWs = (onMessage: (message: IncomingMessage) => void) => {
 
     const isConnectingRef = useRef(false);
     const [isConnected, setIsConnected] = useState(false);
+
+    const canConnect = userName !== null && userName.length > 0;
 
     const sendMessage = useMemo(() => ws ? ((message: OutgoingMessage) => {
         if (ws) {
@@ -50,6 +52,10 @@ export const useWs = (onMessage: (message: IncomingMessage) => void) => {
 
     const connect = useCallback(() => {
 
+        if (!canConnect) {
+            return;
+        }
+
         if (isConnectingRef.current) {
             return;
         }
@@ -59,7 +65,7 @@ export const useWs = (onMessage: (message: IncomingMessage) => void) => {
             return;
         }
 
-        const url = getWsUrl();
+        const url = getWsUrl(clientId, userName);
         const socket = new WebSocket(url)
         console.log(`Connecting to WebSocket '${url}' (attempt: ${(attemptsRef.current + 1)})`)
 
@@ -93,11 +99,11 @@ export const useWs = (onMessage: (message: IncomingMessage) => void) => {
         }
 
         return socket;
-    }, [clientId])
+    }, [clientId, canConnect])
 
 
     useEffect(() => {
-        if (!isConnected) {
+        if (!isConnected && canConnect) {
             attemptsRef.current = 0;
             connect();
         }
@@ -107,7 +113,7 @@ export const useWs = (onMessage: (message: IncomingMessage) => void) => {
                 connectTimeoutRef.current = null;
             }
         }
-    }, [isConnected])
+    }, [isConnected, canConnect])
 
     useEffect(() => {
         

@@ -6,5 +6,5 @@ namespace Plml.RtcAdapter;
 
 public interface IVideoBridge : IDisposable
 {
-    List<RawImage>? Decode(IPEndPoint remoteEP, uint timestamp, byte[] payload, VideoFormat format);
+    (bool success, IEnumerable<RawImage> images, string? errorMessage) Decode(IPEndPoint remoteEP, uint timestamp, byte[] payload, VideoFormat format);
 }

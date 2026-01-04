@@ -1,12 +1,9 @@
 using System.Net;
-using System.Runtime.InteropServices;
-using FFmpeg.AutoGen;
 using Microsoft.Extensions.Logging;
 using Plml.RtcAdapter.NDI;
 using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
-using SIPSorceryMedia.FFmpeg;
 
 namespace Plml.RtcAdapter;
 
@@ -29,6 +26,7 @@ public class RtcServerConnection : IDisposable
 
     public event Action<string,string>? OnSdpOffer;
     public event Action<string>? OnRTCConnected;
+    public event Action<string>? OnRTCDisconnected;
 
     public RtcServerConnection(Settings settings, string connectionId, ILogger logger)
     {
@@ -40,23 +38,10 @@ public class RtcServerConnection : IDisposable
         pc = CreateNewConnection();
 
         ndiSender = new NDISender(Logger.Default, connectionId, [settings.NdiGroup]);
-        videoBridge = new VideoBridge(logger, new FFmpegVideoEncoder());
+        videoBridge = new VideoBridge(logger);
     }
 
-    public void Start() {
-        Task.Run(InitializePeerConnection);
-    }
-    private async Task ResetPeerConnection()
-    {
-        pc?.Dispose();
-        pc = CreateNewConnection();
-
-        await InitializePeerConnection();
-
-        SendSdpOffer();
-    }
-
-    private async Task InitializePeerConnection()
+    public void Start()
     {
         pc.onconnectionstatechange += OnConnectionStateChange;
 
@@ -94,7 +79,7 @@ public class RtcServerConnection : IDisposable
         pc.addTrack(videoTrack);
 
         var offer = pc.createOffer();
-        await pc.setLocalDescription(offer);
+        Task.Run(() => pc.setLocalDescription(offer));
     }
 
     private RTCPeerConnection CreateNewConnection()
@@ -116,13 +101,15 @@ public class RtcServerConnection : IDisposable
     {
         try
         {
-            List<RawImage>? images = videoBridge.Decode(remoteEP, timestamp, frame, format);
-            if (images is not null)
+            (bool success, IEnumerable<RawImage> images, string? errorMessage) = videoBridge.Decode(remoteEP, timestamp, frame, format);
+            if (!success)
             {
-                foreach (RawImage image in images)
-                {
-                    SendImageToNDI(image, timestamp);
-                }
+                logger.Error("SINC", connectionId, $"Error decoding video frame: {errorMessage ?? "Unknown error"}");
+                return;
+            }
+            foreach (RawImage image in images)
+            {
+                SendImageToNDI(image, timestamp);
             }
         }
         catch (Exception ex)
@@ -159,7 +146,7 @@ public class RtcServerConnection : IDisposable
 
         ndiSender.SendFrame(frame);
 
-        Console.WriteLine($"Video sink decoded sample faster: {image.Width}x{image.Height} {image.PixelFormat}");
+        Console.WriteLine($"{connectionId}: Video sink decoded sample faster: {image.Width}x{image.Height} {image.PixelFormat}");
     }
 
     private async void OnConnectionStateChange(RTCPeerConnectionState state)
@@ -169,8 +156,7 @@ public class RtcServerConnection : IDisposable
         {
             case RTCPeerConnectionState.closed:
                 logger.Log("RTC", connectionId, "Connection closed");
-                await ResetPeerConnection();
-                logger.Log("RTC", connectionId, "Peer connection reset, ready to go");
+                OnRTCDisconnected?.Invoke(connectionId);
                 break;
             case RTCPeerConnectionState.connected:
                 logger.Log("RTC", connectionId, "Connection established");
@@ -179,8 +165,7 @@ public class RtcServerConnection : IDisposable
                 break;
             case RTCPeerConnectionState.failed:
                 logger.Error("RTC", connectionId, "Connection failed");
-                await ResetPeerConnection();
-                logger.Log("RTC", connectionId, "Peer connection reset");
+                OnRTCDisconnected?.Invoke(connectionId);
                 break;
         }
     }
@@ -212,6 +197,10 @@ public class RtcServerConnection : IDisposable
                 break;
 
             case RTCSignalingState.stable:
+                break;
+
+            case RTCSignalingState.closed:
+                OnRTCDisconnected?.Invoke(connectionId);
                 break;
         }
     }

@@ -69,6 +69,14 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
+        string? userName = context.Request.QueryString.Get("userName");
+        if (userName is null)
+        {
+            logger.Error("WS", "User name is required");
+            await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "User name is required", CancellationToken.None);
+            return;
+        }
+
         if (!clients.TryAdd(clientId, ws))
         {
             logger.Error("WS", $"Client ID {clientId} already exists");
@@ -76,10 +84,10 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
-        logger.Log("WS", $"Client {clientId} connected");
+        logger.Log("WS", $"Client {clientId} connected with user name '{userName}'");
 
         await Task.Delay(100);
-        await OnClientAddedAsync(clientId);
+        await OnClientAddedAsync(clientId, userName);
 
         var buffer = new byte[16384];
         while (ws.State == WebSocketState.Open)
@@ -280,11 +288,11 @@ public class SignalingServer : ISignalingServer
         await BroadcastMessageAsync(type, payload, excludeClientIds);
     }
 
-    private async Task OnClientAddedAsync(string clientId)
+    private async Task OnClientAddedAsync(string clientId, string userName)
     {
         if (clientId != RTC_ADAPTER_CLIENT_ID)
         {
-            await BroadcastMessageAsync(MessageTypes.ClientAdded, new ClientAddedMessage(clientId, clients.Count), excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
+            await BroadcastMessageAsync(MessageTypes.ClientAdded, new ClientAddedMessage(clientId, userName, clients.Count), excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
         }
         else
         {

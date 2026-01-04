@@ -53,3 +53,7 @@ export function match<T extends string, U>(val: T, choices: Patterns<T, U>): U {
         return choices[val];
     }
 }
+
+export function cn(...classes: string[]): string {
+    return classes.filter(Boolean).join(' ')
+}

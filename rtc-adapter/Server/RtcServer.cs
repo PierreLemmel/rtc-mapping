@@ -19,8 +19,8 @@ public class RtcServer: IRtcServer
     private readonly Settings settings;
     
 
-    private ClientWebSocket ws;
-    private Dictionary<string, RtcServerConnection> connections;
+    private readonly ClientWebSocket ws;
+    private readonly Dictionary<string, RtcServerConnection> connections;
 
 
     public RtcServer(Settings settings, ILogger logger)
@@ -28,18 +28,33 @@ public class RtcServer: IRtcServer
         this.logger = logger;
         this.settings = settings;
 
-        ws = new ClientWebSocket();
-        connections = new Dictionary<string, RtcServerConnection>();
+        ws = new();
+        connections = new();
     }
 
     private RtcServerConnection CreateNewConnection(string connectionId)
     {
         RtcServerConnection connection = new(settings, connectionId, logger);
         connection.OnSdpOffer += async (connectionId, sdpOffer) => await OnSdpOffer(connectionId, sdpOffer);
+        connection.OnRTCDisconnected += OnClientDisconnected;
 
         connection.Start();
 
         return connection;
+    }
+
+    private void OnClientDisconnected(string connectionId) => RemoveConnection(connectionId);
+
+    private void RemoveConnection(string connectionId)
+    {
+        if (!connections.TryGetValue(connectionId, out RtcServerConnection? connection))
+        {
+            logger.Error("RTC", connectionId, "Impossible to remove connection: connection not found");
+            return;
+        }
+
+        connections.Remove(connectionId);
+        connection.Dispose();
     }
 
     private async Task OnSdpOffer(string connectionId, string sdpOffer)
@@ -149,7 +164,7 @@ public class RtcServer: IRtcServer
             return;
         }
 
-        logger.Log("RTC", clientAddedMessage.id, "Client added");
+        logger.Log("RTC", clientAddedMessage.id, $"Client added with user name '{clientAddedMessage.userName}'");
     }
 
     private void HandleSdpAnswerMessage(string data)
@@ -164,12 +179,13 @@ public class RtcServer: IRtcServer
         string sdp = message.sdpAnswer;
         string sourceId = message.sourceId;
 
-        logger.Log("RTC", sourceId, "Received SDP Answer");
-        foreach (var kvp in connections)
+        if (!connections.TryGetValue(sourceId, out RtcServerConnection? connection))
         {
-            var connection = kvp.Value;
-            connection.HandleSdpAnswerMessage(sdp);
+            logger.Error("RTC", sourceId, "Received SDP Answer from unknown client");
+            return;
         }
+
+        connection.HandleSdpAnswerMessage(sdp);
     }
 
     private async Task SendMessageAsync(string type, string data)
