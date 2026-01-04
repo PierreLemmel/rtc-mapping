@@ -8,11 +8,13 @@ namespace Plml.Signaling;
 
 public class SignalingServer : ISignalingServer
 {
+    private record ClientData(string UserName, WebSocket WebSocket);
+    
     private const string RTC_ADAPTER_CLIENT_ID = "rtc-adapter";
 
     private readonly int _port;
     private readonly HttpListener _listener;
-    private readonly ConcurrentDictionary<string, WebSocket> clients = new();
+    private readonly ConcurrentDictionary<string, ClientData> clients = new();
 
     private readonly ILogger logger;
 
@@ -69,6 +71,7 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
+
         string? userName = context.Request.QueryString.Get("userName");
         if (userName is null)
         {
@@ -77,7 +80,8 @@ public class SignalingServer : ISignalingServer
             return;
         }
 
-        if (!clients.TryAdd(clientId, ws))
+        ClientData client = new(UserName: userName, WebSocket: ws);
+        if (!clients.TryAdd(clientId, client))
         {
             logger.Error("WS", $"Client ID {clientId} already exists");
             await ws.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Client ID already exists", CancellationToken.None);
@@ -87,7 +91,7 @@ public class SignalingServer : ISignalingServer
         logger.Log("WS", $"Client {clientId} connected with user name '{userName}'");
 
         await Task.Delay(100);
-        await OnClientAddedAsync(clientId, userName);
+        await OnClientAddedAsync(clientId, userName ?? "");
 
         var buffer = new byte[16384];
         while (ws.State == WebSocketState.Open)
@@ -147,10 +151,10 @@ public class SignalingServer : ISignalingServer
                 await HandleSdpOfferMessageAsync(data, clientId);
                 break;
             case MessageTypes.WaitingRoom:
-                await HandleWaitingRoomMessageAsync(data, clientId);
+                await HandleWaitingRoomMessageAsync(data, clientId, GetUserName(clientId));
                 break;
             case MessageTypes.ClientReady:
-                await HandleClientReadyMessageAsync(data, clientId);
+                await HandleClientReadyMessageAsync(data, clientId, GetUserName(clientId));
                 break;
             default:
                 logger.Error("WS", $"Unknown message type: {type} from client {clientId}");
@@ -161,20 +165,20 @@ public class SignalingServer : ISignalingServer
     private void HandleLogMessage(string message, string clientId) => logger.Log("WS", $"Log from '{clientId}': {message}");
 
     private readonly ConcurrentBag<string> waitingRoom = new();
-    private async Task HandleWaitingRoomMessageAsync(string data, string clientId)
+    private async Task HandleWaitingRoomMessageAsync(string data, string clientId, string userName)
     {
         waitingRoom.Add(clientId);
-        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.ClientAwaiting, clientId);
+        await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.ClientAwaiting, new ClientAwaitingMessage(clientId, userName));
     }
 
-    private async Task HandleClientReadyMessageAsync(string data, string clientId)
+    private async Task HandleClientReadyMessageAsync(string data, string clientId, string userName)
     {
         if (clientId != RTC_ADAPTER_CLIENT_ID)
         {
             logger.Error("RTC", "Only the RTC adapter can send client ready messages");
             return;
         }
-        await BroadcastMessageAsync(MessageTypes.ClientReady, clientId, excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
+        await BroadcastMessageAsync(MessageTypes.ClientReady, new ClientReadyMessage(clientId, userName), excludeClientIds: [RTC_ADAPTER_CLIENT_ID]);
     }
     
     private async Task HandleSdpAnswerMessageAsync(string answer, string clientId)
@@ -221,11 +225,13 @@ public class SignalingServer : ISignalingServer
 
     private async Task SendMessageAsync(string clientId, string type, string data)
     {
-        if (!clients.TryGetValue(clientId, out var ws))
+        if (!clients.TryGetValue(clientId, out var clientData))
         {
             logger.Error("WS", $"Client {clientId} not found");
             return;
         }
+
+        var ws = clientData.WebSocket;
 
         if (ws.State != WebSocketState.Open)
         {
@@ -262,7 +268,7 @@ public class SignalingServer : ISignalingServer
         var tasks = (excludeClientIds is null ? clients : clients.Where(c => !excludeClientIds.Contains(c.Key)))
         .Select(async c => 
         {
-            var ws = c.Value;
+            var ws = c.Value.WebSocket;
             if (ws.State != WebSocketState.Open)
             {
                 logger.Error("WS", $"Client {c.Key} is not open");
@@ -271,7 +277,7 @@ public class SignalingServer : ISignalingServer
 
             try
             {
-                await c.Value.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -301,5 +307,15 @@ public class SignalingServer : ISignalingServer
                 await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.ClientAwaiting, client);
             }
         }
+    }
+
+    private string GetUserName(string clientId)
+    {
+        if (!clients.TryGetValue(clientId, out var clientData))
+        {
+            logger.Error("WS", $"User name for client id '{clientId}' not found");
+            return "";
+        }
+        return clientData.UserName;
     }
 }

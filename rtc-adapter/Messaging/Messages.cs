@@ -7,3 +7,4 @@ public record SdpOfferReadyMessage(string sdpOffer, string targetId);
 public record SdpAnswerReceivedMessage(string sdpAnswer, string sourceId);
 
 public record ClientAddedMessage(string id, string userName, int count);
+public record ClientAwaitingMessage(string id, string userName);

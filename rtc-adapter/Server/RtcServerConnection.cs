@@ -19,6 +19,7 @@ public class RtcServerConnection : IDisposable
     private bool disposed = false;
 
     private string connectionId;
+    private string userName;
 
     private RTCPeerConnection pc;
 
@@ -28,16 +29,16 @@ public class RtcServerConnection : IDisposable
     public event Action<string>? OnRTCConnected;
     public event Action<string>? OnRTCDisconnected;
 
-    public RtcServerConnection(Settings settings, string connectionId, ILogger logger)
+    public RtcServerConnection(Settings settings, string connectionId, string userName, ILogger logger)
     {
         this.settings = settings;
         this.logger = logger;
         this.connectionId = connectionId;
-        
+        this.userName = userName;
 
         pc = CreateNewConnection();
 
-        ndiSender = new NDISender(Logger.Default, connectionId, [settings.NdiGroup]);
+        ndiSender = new NDISender(Logger.Default, $"{userName} ({connectionId})", [settings.NdiGroup]);
         videoBridge = new VideoBridge(logger);
     }
 

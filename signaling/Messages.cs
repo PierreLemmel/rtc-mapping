@@ -9,6 +9,9 @@ public record SdpOfferMessageReceived(string sdpOffer, string targetId);
 public record SdpAnswerMessageReceived(string sdpAnswer, string sourceId);
 public record ClientAddedMessage(string id, string userName, int count);
 
+public record ClientAwaitingMessage(string id, string userName);
+public record ClientReadyMessage(string id, string userName);
+
 public static class MessageTypes
 {
     public const string Log = "Log";

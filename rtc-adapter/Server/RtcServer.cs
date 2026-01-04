@@ -7,13 +7,15 @@ using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
 using Microsoft.Extensions.Logging;
+using System.Text.Encodings.Web;
 
 
 namespace Plml.RtcAdapter;
 
 public class RtcServer: IRtcServer
 {
-    private const string CLIENT_ID = "rtc-adapter";
+    private const string RTC_ADAPTER_CLIENT_ID = "rtc-adapter";
+    private const string RTC_ADAPTER_USER_NAME = "RTC Adapter";
 
     private readonly ILogger logger;
     private readonly Settings settings;
@@ -32,9 +34,9 @@ public class RtcServer: IRtcServer
         connections = new();
     }
 
-    private RtcServerConnection CreateNewConnection(string connectionId)
+    private RtcServerConnection CreateNewConnection(string connectionId, string userName)
     {
-        RtcServerConnection connection = new(settings, connectionId, logger);
+        RtcServerConnection connection = new(settings, connectionId, userName, logger);
         connection.OnSdpOffer += async (connectionId, sdpOffer) => await OnSdpOffer(connectionId, sdpOffer);
         connection.OnRTCDisconnected += OnClientDisconnected;
 
@@ -68,7 +70,7 @@ public class RtcServer: IRtcServer
     {
         logger.Log("WS", $"Connecting to signaling server at {settings.SignalingWs}...");
         
-        var uri = new Uri($"{settings.SignalingWs}?clientId={CLIENT_ID}");
+        var uri = new Uri($"{settings.SignalingWs}?clientId={RTC_ADAPTER_CLIENT_ID}&userName={RTC_ADAPTER_USER_NAME}");
         await ws.ConnectAsync(uri, CancellationToken.None);
         
         logger.Log("WS", "Connected to signaling server.");
@@ -146,12 +148,19 @@ public class RtcServer: IRtcServer
 
     private void HandleClientAwaitingMessage(string data)
     {
-        string clientId = data;
-        logger.Log("RTC", $"Client {clientId} is awaiting");
+        ClientAwaitingMessage? clientAwaitingMessage = JsonSerializer.Deserialize<ClientAwaitingMessage>(data);
 
-        string connectionId = clientId;
-        RtcServerConnection connection = CreateNewConnection(connectionId);
-        connections.Add(connectionId, connection);
+        if (clientAwaitingMessage is null)
+        {
+            logger.Error("RTC", "Failed to deserialize ClientAwaitingMessage");
+            return;
+        }
+
+        (string clientId, string userName) = clientAwaitingMessage; 
+        logger.Log("RTC", $"Client {clientId} is awaiting with user name '{userName}'");
+
+        RtcServerConnection connection = CreateNewConnection(clientId, userName);
+        connections.Add(clientId, connection);
     }
 
     private void HandleClientAddedMessage(string data)
@@ -192,7 +201,7 @@ public class RtcServer: IRtcServer
     {
         if (ws.State != WebSocketState.Open) return;
 
-        var msg = new OutgoingMessage(type, data, CLIENT_ID);
+        var msg = new OutgoingMessage(type, data, RTC_ADAPTER_CLIENT_ID);
         string json = JsonSerializer.Serialize(msg);
         byte[] bytes = Encoding.UTF8.GetBytes(json);
 
