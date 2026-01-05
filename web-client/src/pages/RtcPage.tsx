@@ -5,6 +5,10 @@ import type { ClientAddedData, IncomingMessage } from "../messaging/messages";
 import { useRtc } from "../hooks/useRtc";
 import { cn } from "../lib/util";
 
+type MediaStreamData = {
+    deviceId: string;
+    stream: MediaStream | null;
+}
 
 const RtcPage = () => {
     const [showConfig, setShowConfig] = useState(true)
@@ -70,8 +74,7 @@ const RtcPage = () => {
     }, [userNameEdit])
 
     const videoContainerRef = useRef<HTMLDivElement>(null)
-    const videoRef = useRef<HTMLVideoElement>(null)
-    const [tracksInitialized, setTracksInitialized] = useState(false)
+    const [camerasInitialized, setCamerasInitialized] = useState(false)
 
     const {
         sdpAnswer,
@@ -80,11 +83,21 @@ const RtcPage = () => {
         connected: rtcConnected,
     } = useRtc();
 
+    const mediaInitStartedRef = useRef(false);
+    const mediaStreamsRef = useRef<MediaStreamData[]>([])
+    const videosRefs = useRef<(HTMLVideoElement|null)[]>([])
 
-    const [mediaStream, setMediaStream] = useState<MediaStream | null>(null)
-    const senderRef = useRef<RTCRtpSender | null>(null)
+
+    useEffect(() => {
+        if(!mediaStreamsRef.current) return;
+
+        
+    }, [camerasInitialized])
 
     useEffectAsync(async () => {
+        if (mediaInitStartedRef.current) return
+        mediaInitStartedRef.current = true
+        
         const devices = await navigator.mediaDevices.enumerateDevices()
         const cameras = devices
             .filter(d => d.kind === 'videoinput')
@@ -93,47 +106,44 @@ const RtcPage = () => {
             .filter(d => !d.label.toLowerCase().includes('obs'))
         setVideoDevices(cameras)
 
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        setMediaStream(stream)
-        stream.getTracks().forEach(track => {
-            if (track.kind === 'video') {
-                videoRef.current!.srcObject = stream
-                senderRef.current = addTrack(track, stream)
-            }
+        mediaStreamsRef.current = cameras.map(cam => {
+
+            return {
+                deviceId: cam.deviceId,
+                stream: null,
+            } satisfies MediaStreamData
         })
-        setTracksInitialized(true)
+        const tasks = mediaStreamsRef.current.map(async (streamData, index) => {
+
+            console.log(`Getting media stream for device ${streamData.deviceId}`)
+            const stream = await navigator.mediaDevices.getUserMedia({ video: {
+                deviceId: { exact: streamData.deviceId },
+            }, audio: true })
+
+            const video = videosRefs.current[index]
+            streamData.stream = stream
+            stream.getTracks().forEach(track => {
+                if (track.kind === 'video') {
+                    video!.srcObject = stream
+                }
+            })
+
+            console.log(`Media stream for device ${streamData.deviceId} initialized`)
+        })
+        
+        await Promise.all(tasks)
+        setCamerasInitialized(true)
     }, [])
 
     const canSwitchCamera = useMemo(() => {
         return videoDevices !== null && videoDevices.length > 1
     }, [videoDevices])
+    
     const switchCamera = useCallback(async () => {
         if (videoDevices === null || videoDevices.length < 2) return
-
         const nextIndex = (currentDeviceIndex + 1) % videoDevices.length
-        const nextDevice = videoDevices[nextIndex]
-
-        try {
-            mediaStream?.getVideoTracks().forEach(track => track.stop())
-
-            const newStream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { exact: nextDevice.deviceId } },
-                audio: false
-            })
-
-            const newVideoTrack = newStream.getVideoTracks()[0]
-            videoRef.current!.srcObject = newStream
-
-            if (senderRef.current) {
-                await senderRef.current.replaceTrack(newVideoTrack)
-            }
-
-            setMediaStream(newStream)
-            setCurrentDeviceIndex(nextIndex)
-        } catch (err) {
-            console.warn('Failed to switch camera:', err)
-        }
-    }, [videoDevices, currentDeviceIndex, mediaStream])
+        setCurrentDeviceIndex(nextIndex)
+    }, [videoDevices, currentDeviceIndex])
 
 
     const [clientCount, setClientCount] = useState<number>(0)
@@ -182,13 +192,12 @@ const RtcPage = () => {
     }, [clientId, sendMessage])
 
     useEffect(() => {
-        if (sdpAnswer && sendMessage && tracksInitialized) {
+        if (sdpAnswer && sendMessage && camerasInitialized) {
             sendMessage({ type: 'SdpAnswer', data: sdpAnswer })
         }
-    }, [sdpAnswer, sendMessage, tracksInitialized])
+    }, [sdpAnswer, sendMessage, camerasInitialized])
 
-
-
+    const currentDeviceLabel = videoDevices?.[currentDeviceIndex]?.label ?? 'No camera'
 	return <div className={cn(
         "h-screen w-screen overflow-hidden",
         "relative",
@@ -272,20 +281,23 @@ const RtcPage = () => {
                     "col-span-2 grow h-full w-full",
                     
                 )}>
-                    <div className={cn(
-                        "absolute inset-0",
-                        "flex justify-center items-center",
-                    )}>
-                        <video
-                            className={cn(
-                                "w-full h-full object-contain relative -scale-x-100",
-                            )}
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            muted
-                        />
-                    </div>
+                    {mediaStreamsRef?.current.map((streamData, index) => (
+                        <div key={index} className={cn(
+                            "absolute inset-0",
+                            "flex justify-center items-center",
+                            index === currentDeviceIndex ? "visible" : "hidden",
+                        )}>
+                            <video
+                                ref={el => {
+                                    videosRefs.current[index] = el
+                                }}
+                                className={cn(
+                                    "w-full h-full object-contain relative -scale-x-100"
+                                )}
+                                autoPlay playsInline muted
+                            />
+                        </div>
+                    ))}
                     
                     <div
                         className={cn(
@@ -315,10 +327,14 @@ const RtcPage = () => {
                     >
                         {isFullscreen ? "⛶" : "⛶"}
                     </div>
+
+                    {isFullscreen && <div className={cn(
+                        "fixed top-2 w-full text-center text-2xl font-bold",
+                    )}>{currentDeviceLabel}</div>}
                 </div>
                 <div><b>Nombre de clients :</b> {clientCount}</div>
                 {(videoDevices && videoDevices.length) ?
-                    <div><b>Caméra ({currentDeviceIndex + 1}/{videoDevices.length}) :</b> {videoDevices[currentDeviceIndex]?.label ?? 'No camera'}</div> :
+                    <div><b>Caméra ({currentDeviceIndex + 1}/{videoDevices.length}) :</b> {currentDeviceLabel}</div> :
                     <div>Aucune caméra disponible</div>}
             </div>
         </div>
