@@ -86,8 +86,9 @@ export const useRtc = () => {
     }, [sdpOffer])
 
     const addTrack = useCallback((track: MediaStreamTrack, stream: MediaStream) => {
-        pc.addTrack(track, stream)
+        const sender = pc.addTrack(track, stream)
         setLocalTracks(prev => [...prev, track])
+        return sender
     }, [pc])
 
     return {
