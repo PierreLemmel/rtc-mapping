@@ -26,7 +26,12 @@ const getWsUrl = (clientId: string, userName: string) => {
     return url;
 }
 
-export const useWs = (userName: string | null, onMessage: (message: IncomingMessage) => void) => {
+
+export type UserData = {
+    userName: string;
+    camCount: number;
+}
+export const useWs = (userData: UserData | null, onMessage: (message: IncomingMessage) => void) => {
 
     const [ws, setWs] = useState<WebSocket|null>(null);
     const socketRef = useRef<WebSocket | null>(null);
@@ -36,7 +41,7 @@ export const useWs = (userName: string | null, onMessage: (message: IncomingMess
     const isConnectingRef = useRef(false);
     const [isConnected, setIsConnected] = useState(false);
 
-    const canConnect = userName !== null && userName.length > 0;
+    const canConnect = userData !== null;
 
     const sendMessage = useMemo(() => ws ? ((message: OutgoingMessage) => {
         if (ws) {
@@ -65,7 +70,7 @@ export const useWs = (userName: string | null, onMessage: (message: IncomingMess
             return;
         }
 
-        const url = getWsUrl(clientId, userName);
+        const url = getWsUrl(clientId, userData!.userName);
         const socket = new WebSocket(url)
         console.log(`Connecting to WebSocket '${url}' (attempt: ${(attemptsRef.current + 1)})`)
 

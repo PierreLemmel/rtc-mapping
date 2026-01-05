@@ -20,7 +20,6 @@ export const useRtc = () => {
     const [sdpAnswer, setSdpAnswer] = useState<string | null>(null)
     
     const [localTracks, setLocalTracks] = useState<MediaStreamTrack[]>([])
-    const [remoteTracks, setRemoteTracks] = useState<MediaStreamTrack[]>([])
     
     const [dataChannels, setDataChannels] = useState<RTCDataChannel[]>([])
 
@@ -35,13 +34,6 @@ export const useRtc = () => {
 
             const dataChannel = event.channel;
             setDataChannels(prev => [...prev, dataChannel])
-        }
-
-        pc.ontrack = (event) => {
-            console.log(`Track added: ${event.track.kind}`)
-
-            const track = event.track;
-            setRemoteTracks(prev => [...prev, track])
         }
 
         pc.onconnectionstatechange = (event) => {
@@ -98,7 +90,6 @@ export const useRtc = () => {
         addTrack,
         dataChannels,
         localTracks,
-        remoteTracks,
         connected,
     }
 }

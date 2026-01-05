@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react"
-import { useWs } from "../hooks/useWs"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useWs, type UserData } from "../hooks/useWs"
 import { useEffectAsync } from "../hooks/useEffectAsync"
 import type { ClientAddedData, IncomingMessage } from "../messaging/messages";
 import { useRtc } from "../hooks/useRtc";
@@ -13,7 +13,7 @@ const RtcPage = () => {
 
     const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
-    const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([])
+    const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[] | null>(null)
     const [currentDeviceIndex, setCurrentDeviceIndex] = useState(0)
 
     const requestWakeLock = useCallback(async () => {
@@ -104,8 +104,11 @@ const RtcPage = () => {
         setTracksInitialized(true)
     }, [])
 
+    const canSwitchCamera = useMemo(() => {
+        return videoDevices !== null && videoDevices.length > 1
+    }, [videoDevices])
     const switchCamera = useCallback(async () => {
-        if (videoDevices.length < 2) return
+        if (videoDevices === null || videoDevices.length < 2) return
 
         const nextIndex = (currentDeviceIndex + 1) % videoDevices.length
         const nextDevice = videoDevices[nextIndex]
@@ -158,7 +161,17 @@ const RtcPage = () => {
                 break;
         }
     }, [setOffer])
-    const { clientId, sendMessage } = useWs(userName, onMessage)
+
+
+    const userData: UserData|null = useMemo(() => {
+        if (videoDevices === null) return null
+        if (userName === null) return null
+        return {
+            userName: userName,
+            camCount: videoDevices.length,
+        }
+    }, [userName, videoDevices])
+    const { clientId, sendMessage } = useWs(userData, onMessage)
 
     const initialMessageSentRef = useRef(false);
     useEffect(() => {
@@ -234,7 +247,7 @@ const RtcPage = () => {
                 <div className={cn(
                     "text-xl font-bold",
                 )}>Plml Mapping</div>
-                <div className="flex items-center gap-2">
+                {/* <div className="flex items-center gap-2">
                     <div
                         className={cn(
                             "text-2xl text-slate-400",
@@ -245,7 +258,7 @@ const RtcPage = () => {
                     >
                         ⚙️
                     </div>
-                </div>
+                </div> */}
             </div>
 
             <div className={cn(
@@ -256,35 +269,41 @@ const RtcPage = () => {
                 <div><b>Connecté :</b> {rtcConnected ? 'Oui' : 'Non'}</div>
                 <div ref={videoContainerRef} className={cn(
                     "relative",
-                    "col-span-2 grow h-full",
-                    "flex justify-center items-center",
+                    "col-span-2 grow h-full w-full",
+                    
                 )}>
-                    <video
-                        className="-scale-x-100 w-full h-full object-contain relative"
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                    />
-                    {videoDevices.length > 1 && (
-                        <div
+                    <div className={cn(
+                        "absolute inset-0",
+                        "flex justify-center items-center",
+                    )}>
+                        <video
                             className={cn(
-                                "absolute bottom-2 left-2",
-                                "text-2xl",
-                                "bg-black/50 px-2.5 py-1.5 rounded-md",
-                                "cursor-pointer hover:bg-slate-200/50",
-                                "text-white",
-                                "transition-all duration-300",
+                                "w-full h-full object-contain relative -scale-x-100",
                             )}
-                            onClick={switchCamera}
-                            title="Switch camera"
-                        >
-                            🔄
-                        </div>
-                    )}
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            muted
+                        />
+                    </div>
+                    
                     <div
                         className={cn(
-                            "absolute bottom-2 right-2",
+                            isFullscreen ? "fixed bottom-2 left-2 z-10" : "absolute bottom-2 left-2",
+                            "text-2xl",
+                            "bg-black/50 px-2.5 py-1.5 rounded-md",
+                            canSwitchCamera ? "cursor-pointer hover:bg-slate-200/50" : "cursor-not-allowed opacity-50",
+                            "text-white",
+                            "transition-all duration-300",
+                        )}
+                        onClick={canSwitchCamera ? switchCamera : undefined}
+                        title="Switch camera"
+                    >
+                        🔄
+                    </div>
+                    <div
+                        className={cn(
+                            isFullscreen ? "fixed bottom-2 right-2 z-10" : "absolute bottom-2 right-2",
                             "text-2xl text-slate-400",
                             "bg-black/50 px-2.5 py-1.5 rounded-md",
                             "cursor-pointer hover:bg-slate-200/50",
@@ -298,7 +317,9 @@ const RtcPage = () => {
                     </div>
                 </div>
                 <div><b>Nombre de clients :</b> {clientCount}</div>
-                <div><b>Caméra :</b> {videoDevices[currentDeviceIndex]?.label ?? 'No camera'}</div>
+                {(videoDevices && videoDevices.length) ?
+                    <div><b>Caméra ({currentDeviceIndex + 1}/{videoDevices.length}) :</b> {videoDevices[currentDeviceIndex]?.label ?? 'No camera'}</div> :
+                    <div>Aucune caméra disponible</div>}
             </div>
         </div>
         

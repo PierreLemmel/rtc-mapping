@@ -38,7 +38,7 @@ public class RtcServerConnection : IDisposable
 
         pc = CreateNewConnection();
 
-        ndiSender = new NDISender(Logger.Default, $"{userName} ({connectionId})", [settings.NdiGroup]);
+        ndiSender = new NDISender(Logger.Default, $"{userName} - {connectionId}", [settings.NdiGroup]);
         videoBridge = new VideoBridge(logger);
     }
 
@@ -146,8 +146,6 @@ public class RtcServerConnection : IDisposable
         };
 
         ndiSender.SendFrame(frame);
-
-        Console.WriteLine($"{connectionId}: Video sink decoded sample faster: {image.Width}x{image.Height} {image.PixelFormat}");
     }
 
     private void OnConnectionStateChange(RTCPeerConnectionState state)

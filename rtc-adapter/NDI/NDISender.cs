@@ -33,6 +33,7 @@ public class NDISender : INDISender
         if (result == IntPtr.Zero)
         {
             logger.Error("NDI", $"Failed to create NDI sender: {Marshal.GetLastWin32Error()}");
+            logger.Error("NDI", $"Failed to create NDI sender: {Marshal.GetLastWin32Error()}");
             return;
         }
 
