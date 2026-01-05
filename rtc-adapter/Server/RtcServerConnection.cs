@@ -150,7 +150,7 @@ public class RtcServerConnection : IDisposable
         Console.WriteLine($"{connectionId}: Video sink decoded sample faster: {image.Width}x{image.Height} {image.PixelFormat}");
     }
 
-    private async void OnConnectionStateChange(RTCPeerConnectionState state)
+    private void OnConnectionStateChange(RTCPeerConnectionState state)
     {
         logger.Log("RTC", connectionId, $"Connection state changed: {state.ToString().ToUpper()}");
         switch (state)

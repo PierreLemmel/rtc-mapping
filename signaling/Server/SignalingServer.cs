@@ -304,7 +304,8 @@ public class SignalingServer : ISignalingServer
         {
             foreach (string client in waitingRoom)
             {
-                await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.ClientAwaiting, client);
+                var message = new ClientAwaitingMessage(client, GetUserName(client));
+                await SendMessageAsync(RTC_ADAPTER_CLIENT_ID, MessageTypes.ClientAwaiting, message);
             }
         }
     }
